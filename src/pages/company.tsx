@@ -106,7 +106,8 @@ function Hero({ c, action }: { c: Company; action: ReturnType<typeof actionOf> }
               {offer.ends ? <span class="font-semibold">Ends {day(offer.ends)}</span> : null}
             </p>
           ) : null}
-          <div class="mt-6 flex flex-wrap items-center gap-3">
+          {/* On a phone the bar along the bottom carries the action, so it shows once. */}
+          <div class="mt-6 hidden flex-wrap items-center gap-3 lg:flex">
             {action ? <a href={action.href} class={CTA}>{action.label}</a> : null}
             {tel && action?.href === "#request" ? <a href={telOf(tel)} class={CTA_QUIET}><PhoneIcon /> {tel}</a> : null}
           </div>
