@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { done, fail, machineEnv } from "../src/data/cli.mjs";
+import { askForDatabase, done, fail, machineEnv } from "../src/data/cli.mjs";
 import type { Db } from "../src/data/db";
 import { applySchema } from "../src/data/migrate";
 import { fromPool } from "../src/data/pg";
@@ -50,7 +50,7 @@ const url = () => machineEnv().DATABASE_URL;
 /** Runs `fn` on the app's database, with the tables in place. The forms command calls this. */
 export async function withDb<T>(fn: (db: Db) => Promise<T>): Promise<T> {
   const conn = url();
-  if (!conn) fail("no database yet: DATABASE_URL is not set", "python3 ~/tools/taskandtool.py request-database");
+  if (!conn) fail("no database yet: DATABASE_URL is not set", askForDatabase());
   const pool = new pg.Pool({ connectionString: conn, max: 2 });
   try {
     const db = fromPool(pool);
@@ -67,7 +67,7 @@ if (basename(process.argv[1] ?? "") === "migrate.ts" && resolve(process.argv[1]!
 Sets up the project database's tables (quote requests, visits) and the
 quote form the first time. Safe to re-run. Prints what it did. Without a database it says so and exits 0.`, { tryHelp: "npm run migrate -- --help" });
   if (!url()) {
-    done("migrate", "no database yet, so quote requests and visits wait", { lines: ["The pages work; requests are not saved and visits are not counted until then."], next: "python3 ~/tools/taskandtool.py request-database" });
+    done("migrate", "no database yet, so quote requests and visits wait", { lines: ["The pages work; requests are not saved and visits are not counted until then."], next: askForDatabase() });
   } else {
     await withDb(async () => undefined).catch((e: unknown) => fail(`migrate: ${e instanceof Error ? e.message : String(e)}`, "npm run migrate, once the database answers"));
     done("migrate", "the tables and the quote form are in place", { next: "node scripts/forms.mjs list" });

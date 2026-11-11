@@ -25,6 +25,14 @@ that domain's wildcard DNS points at the app. The bare domain sends visitors to 
 Connections, none required: Google Places, ScrapeCreators, Hunter, MillionVerifier and Instantly.
 Each has its own terms, which you accept when you connect it.
 
+## Off Task & Tool
+
+`npm install && npm run dev` serves the pages, and `npm run build` writes `dist/` and
+`build/worker.mjs` (`wrangler.jsonc` deploys them to your own Cloudflare account). Set `DATABASE_URL`
+to a Neon database to save quote requests and count visits; without it the pages still work. Finding
+companies and contacts, the pictures and the scheduled runs are Task & Tool's: they call the
+connections above through its gateway and run from its scheduler.
+
 ## Developing
 
 `npm test` runs the scripts' tests. `npm run dev` serves on localhost:3000; a company's page is at `/<slug>`.

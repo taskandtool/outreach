@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { stringify } from "yaml";
-import { done, fail, flag, has, limitOf, machineEnv, misused, noMore, parseArgs, usage } from "../src/data/cli.mjs";
+import { askForDatabase, done, fail, flag, has, limitOf, machineEnv, misused, noMore, parseArgs, usage } from "../src/data/cli.mjs";
 import { at, connections, frontMatter, here, readJson, today, vendor, writeAtomic } from "./lib.mjs";
 
 const HELP = `usage: node scripts/outreach.mjs <command> [options]
@@ -256,7 +256,7 @@ if (cmd === "visits") {
   const days = Number(flag(a, "days") ?? 30);
   if (!Number.isInteger(days) || days < 1) misused("outreach visits: --days is a whole number from 1", "node scripts/outreach.mjs visits --days 30");
   const url = machineEnv().DATABASE_URL;
-  if (!url) fail("outreach visits: no database yet, so visits are not counted", "python3 ~/tools/taskandtool.py request-database");
+  if (!url) fail("outreach visits: no database yet, so visits are not counted", askForDatabase());
   const { default: pg } = await import("pg");
   const pool = new pg.Pool({ connectionString: url, max: 1 });
   let rows;
