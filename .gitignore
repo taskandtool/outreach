@@ -1,0 +1,35 @@
+# Never commit credentials or local state. Task & Tool delivers env to a
+# machine at install time; nothing in this repo should ever hold a key.
+.env
+.env.*
+!.env.example
+.envrc
+.wrangler/
+*.pem
+*.key
+
+# Build output: dist/ is what ships to production, build/ holds the Worker bundle.
+dist/
+build/
+static/site.css
+static/media/
+src/generated/
+node_modules/
+
+# The owner's working knowledge, made on their machine, restored from backups
+# on a replacement machine, never part of the repository.
+/companies.csv
+/log.md
+/raw/
+/records/
+/data/
+/outreach/
+/uploads/
+/samples/
+/.pipeline/
+
+# Tool noise
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

@@ -1,0 +1,110 @@
+/* The site's stylesheet source. `npm run css` builds static/site.css from it. */
+@import "tailwindcss" source(none);
+@import "./theme.css";   /* the design tokens: brand colours and fonts, roles, scale, edges, rhythm */
+
+@keyframes marquee {
+  to { transform: translateX(-50%); }
+}
+
+/* Only the site's own source is scanned for class names. */
+@source "../src";
+@source "../static/site.js";
+
+@layer base {
+  html {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    margin: 0;
+    font-size: var(--text-copy);
+    line-height: var(--text-copy--line-height);
+  }
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+  a {
+    color: inherit;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+  /* Every select looks like the site's, with its own chevron, on any browser. */
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%233f504b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7.500 5 5 5-5'/%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+    background-repeat: no-repeat;
+    background-size: 1.125rem;
+    padding-right: 2.5rem;
+    text-overflow: ellipsis;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+  footer :focus-visible {
+    outline-color: var(--color-night-ink);
+  }
+  /* Long-form text from markdown (posts, legal pages). */
+  .prose :is(h2, h3) { margin-top: 2em; font-family: var(--font-body); }
+  .prose h2 { font-size: var(--text-title); line-height: var(--text-title--line-height); font-weight: 600; }
+  .prose h3 { font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
+  .prose :is(p, ul, ol, blockquote, pre, table) { margin-top: 1.25em; }
+  .prose :is(ul, ol) { padding-left: 1.5em; }
+  .prose ul { list-style: disc; }
+  .prose ol { list-style: decimal; }
+  .prose a { color: var(--color-accent); }
+  .prose img { border-radius: var(--radius-card); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  /* Motion, CSS only: the first screen's words rise in once (data-rise on
+     their wrapper, children in turn), and a later band as it scrolls into
+     view (data-reveal). Reduced motion, or a browser without scroll
+     timelines, shows the page finished. */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-rise] > * { animation: rise 0.9s var(--ease-soft) both; }
+    [data-rise] > :nth-child(2) { animation-delay: 0.12s; }
+    [data-rise] > :nth-child(3) { animation-delay: 0.24s; }
+    [data-rise] > :nth-child(n + 4) { animation-delay: 0.36s; }
+    @supports (animation-timeline: view()) {
+      [data-reveal] { animation: rise linear both; animation-timeline: view(); animation-range: entry 5% cover 25%; }
+    }
+  }
+  /* Words over a photograph: a shade of the night colour over the image,
+     darkest behind the words (scrim from the left, scrim-up from the bottom). */
+  .scrim { background-image: linear-gradient(90deg, color-mix(in oklab, var(--color-night) 90%, transparent), color-mix(in oklab, var(--color-night) 70%, transparent) 40%, transparent 85%); }
+  .scrim-up { background-image: linear-gradient(0deg, color-mix(in oklab, var(--color-night) 85%, transparent), transparent 70%); }
+  @keyframes rise {
+    from { opacity: 0; translate: 0 1.5rem; }
+  }
+  /* A marquee: a row that runs sideways (data-marquee="left" or "right" on
+     its frame, the items twice inside so it loops, --marquee-time its time);
+     it stops under the pointer or focus. Reduced motion gets one still row to swipe. */
+  [data-marquee] { overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); }
+  @media (prefers-reduced-motion: no-preference) {
+    [data-marquee] > * { animation: marquee var(--marquee-time, 60s) linear infinite; }
+    [data-marquee="right"] > * { animation-direction: reverse; }
+    [data-marquee]:hover > *, [data-marquee]:focus-within > * { animation-play-state: paused; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-marquee] { overflow-x: auto; mask-image: none; }
+    [data-marquee] > * { padding-inline-start: 1.25rem; }
+    @media (width >= 40rem) { [data-marquee] > * { padding-inline-start: 2rem; } }
+    [data-marquee] [inert] { display: none; }
+  }
+  @keyframes marquee {
+    to { translate: -50% 0; }
+  }
+}

@@ -1,0 +1,905 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { Hono } from "hono";
+import { applySchema } from "../../data/migrate";
+import { scratch, why, type Scratch } from "../../data/test/scratch";
+import { embedForm, formRoutes, summary } from "../routes";
+import { formEditor, formsAdmin } from "../admin";
+import { CONTACT_FORM, insertOnce, loadForm, seedForm } from "../store";
+import { makeStamp } from "../../data/spam";
+
+/** A submission as a form saves it, each with a key of its own. */
+const insertSubmission = (db: Scratch["db"], sub: Parameters<typeof insertOnce>[1]) => insertOnce(db, sub, crypto.randomUUID()).then((r) => r.id);
+
+// The inbox shows the customer's notes, so the customers skill's tables come with it.
+const schema = ["../schema.sql", "../../customers/schema.sql"].map((p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8")).join(";\n");
+
+function site(s: Scratch) {
+  const app = new Hono();
+  app.route("/", formRoutes(() => s.db, { source: "website", page: (_c, title, body) => `<!doctype html><title>${title}</title>${String(body)}` }));
+  app.get("/contact", async (c) => c.html(String(await embedForm(c, s.db, "contact"))));
+  app.route("/admin/submissions", formsAdmin(() => s.db, { base: "/admin/submissions", css: "/site.css", timeZone: "America/Chicago" }));
+  app.route("/admin/forms", formEditor(() => s.db, { base: "/admin/forms", css: "/site.css", timeZone: "America/Chicago", source: "website", submissions: "/admin/submissions" }));
+  return app;
+}
+
+const post = (app: Hono, path: string, fields: Record<string, string>, headers: Record<string, string> = {}) =>
+  app.request(`https://site.example${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", host: "site.example", ...headers },
+    body: new URLSearchParams(fields).toString(),
+  });
+
+const team = { "x-tasktool-user": "Owner@Example.com", origin: "https://site.example" };
+
+async function setUp(t: { skip: (m: string) => void }) {
+  const s = await scratch();
+  if (!s) {
+    t.skip(why);
+    return null;
+  }
+  await applySchema(s.db, schema);
+  await applySchema(s.db, schema); // every app runs it on start: twice is a no-op
+  await seedForm(s.db, CONTACT_FORM, "website");
+  await seedForm(s.db, { ...CONTACT_FORM, title: "Changed" }, "crm"); // never overwrites
+  return s;
+}
+
+const oldStamp = () => makeStamp("contact", Date.now() - 10_000);
+
+test("a submission is stored with the email lowered and the rest in data, then 303 to thanks", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const res = await post(app, "/forms/contact", {
+      name: "Ann Lee",
+      email: " Ann@Example.COM ",
+      message: "Hello there",
+      company_website: "",
+      _started: await oldStamp(),
+      _page: "/contact",
+      extra: "not a field",
+    });
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("location"), "/forms/contact/thanks");
+    const rows = await s.db.sql`select form_key, name, email::text as email, phone, data, source, page, status from submissions`;
+    assert.deepEqual(rows, [
+      { form_key: "contact", name: "Ann Lee", email: "ann@example.com", phone: null, data: { message: "Hello there", _landing: "/contact" }, source: "website", page: "/contact", status: "new" },
+    ]);
+    const [f] = await s.db.sql`select title from forms where key = 'contact'`;
+    assert.equal(f.title, "Contact");
+
+    const thanks = await app.request("https://site.example/forms/contact/thanks");
+    assert.equal(thanks.status, 200);
+    assert.match(await thanks.text(), /Your message has arrived/);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("the team is emailed through Task & Tool email, and the submission keeps who it went to", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  const real = globalThis.fetch;
+  const sent: any[] = [];
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    sent.push({ url, body: JSON.parse(String(init.body)) });
+    return Response.json({ sent: ["owner@example.com"], skipped: ["office@example.com"], failed: [] });
+  }) as typeof fetch;
+  try {
+    await s.db.sql`update forms set notify_emails = '{owner@example.com,office@example.com}' where key = 'contact'`;
+    const env = { PHOENIX_URL: "https://tt.example", MACHINE_TOKEN: "mt" };
+    const res = await site(s).request(
+      "https://site.example/forms/contact",
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", host: "site.example" },
+        body: new URLSearchParams({ name: "Ann", email: "ann@example.com", message: "Hi", company_website: "", _started: await oldStamp() }).toString(),
+      },
+      env,
+    );
+    assert.equal(res.status, 303);
+    let notified: string | null = null;
+    for (let i = 0; i < 100 && !notified; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      notified = (await s.db.sql`select notified from submissions`)[0].notified;
+    }
+    assert.equal(notified, "Emailed owner@example.com. Not emailed: office@example.com (cannot open this app in Task & Tool)");
+    assert.equal(sent[0].url, "https://tt.example/api/machine/gateway/taskandtool-email/emails");
+    assert.equal(sent[0].body.reply_to, "ann@example.com");
+  } finally {
+    globalThis.fetch = real;
+    await s.drop();
+  }
+});
+
+test("errors re-render in the app's page with 422 and keep the stamp; nothing is stored", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const stamp = await oldStamp();
+    const res = await post(site(s), "/forms/contact", { name: "", email: "nope", _started: stamp });
+    assert.equal(res.status, 422);
+    const h = await res.text();
+    assert.match(h, /^<!doctype html><title>Contact<\/title>/);
+    assert.match(h, /aria-invalid="true"/);
+    assert.match(h, /value="nope"/);
+    assert.ok(h.includes(`name="_started" value="${stamp}"`));
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 0);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a bot is thanked: no stamp drops it; a filled honeypot or a too-fast post is kept as spam, in case it was a person", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const good = { name: "Bot", email: "bot@example.com" };
+    const nostamp = await post(app, "/forms/contact", good);
+    assert.equal(nostamp.status, 303);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 0);
+
+    const trap = await post(app, "/forms/contact", { ...good, company_website: "http://spam", _started: await oldStamp() });
+    assert.equal(trap.status, 303);
+    const fast = await post(app, "/forms/contact", { ...good, name: "Fast", _started: await makeStamp("contact") });
+    assert.equal(fast.status, 303);
+    const rows = await s.db.sql`select status from submissions`;
+    assert.deepEqual(rows, [{ status: "spam" }, { status: "spam" }]);
+    assert.equal((await s.db.sql`select count(*)::int as n from leads`)[0].n, 0);
+
+    const big = await post(app, "/forms/contact", { ...good, message: "x".repeat(40_000), _started: await oldStamp() });
+    assert.equal(big.status, 413);
+    assert.equal((await post(app, "/forms/nope", good)).status, 404);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("the private views need the team header; opening reads, Archive and spam move it between tabs", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    await post(app, "/forms/contact", { name: "Ann", email: "ann@example.com", message: "call me", _started: await oldStamp() });
+    const [{ id }] = await s.db.sql`select id::text as id from submissions`;
+
+    let inbox = await (await app.request("https://site.example/admin/submissions?q=ann", { headers: team })).text();
+    assert.match(inbox, /ann@example.com/);
+    assert.match(inbox, /Open \(1 new\)/);
+    for (const path of ["/admin/submissions", "/admin/submissions/archived", "/admin/submissions/spam", `/admin/submissions/${id}`]) {
+      assert.equal((await app.request(`https://site.example${path}`)).status, 404, path);
+      assert.equal((await app.request(`https://site.example${path}`, { headers: team })).status, 200, path);
+    }
+    assert.equal((await post(app, `/admin/submissions/${id}/status`, { status: "done" })).status, 404);
+    assert.match(inbox, new RegExp(`<td[^>]*>${CONTACT_FORM.title}</td>`), "the form by its title, not its key");
+    assert.match(inbox, /Email is off/, "says email is off");
+
+    // Opening it reads it: still Open, no longer new, and nobody is named as changing it.
+    assert.match(await (await app.request(`https://site.example/admin/submissions/${id}`, { headers: team })).text(), /call me/);
+    let [row] = await s.db.sql`select status, updated_by::text as updated_by from submissions where id = ${id}::bigint`;
+    assert.deepEqual(row, { status: "read", updated_by: null });
+
+    let res = await post(app, `/admin/submissions/${id}/status`, { status: "done" }, team);
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("location"), "/admin/submissions?saved=done");
+    [row] = await s.db.sql`select status, updated_by::text as updated_by from submissions where id = ${id}::bigint`;
+    assert.deepEqual(row, { status: "done", updated_by: "owner@example.com" });
+    inbox = await (await app.request("https://site.example/admin/submissions", { headers: team })).text();
+    assert.doesNotMatch(inbox, /ann@example.com/);
+    assert.match(await (await app.request("https://site.example/admin/submissions/archived", { headers: team })).text(), /ann@example.com/);
+    // Marked as spam from Archived: back to Archived, the list it left.
+    res = await post(app, `/admin/submissions/${id}/status`, { status: "spam" }, team);
+    assert.equal(res.headers.get("location"), "/admin/submissions/archived?saved=spam");
+    await post(app, `/admin/submissions/${id}/status`, { status: "done" }, team);
+
+    res = await post(app, "/admin/submissions/bulk", { id, status: "spam", return: "/admin/submissions/archived" }, team);
+    assert.equal(res.headers.get("location"), "/admin/submissions/archived?saved=bulk&n=1");
+    assert.match(await (await app.request("https://site.example/admin/submissions/spam", { headers: team })).text(), /ann@example.com/);
+    res = await post(app, "/admin/submissions/bulk", { id, status: "read", return: "https://evil.example/" }, team);
+    assert.equal(res.headers.get("location"), "/admin/submissions?saved=bulk&n=1", "a return off the admin goes home");
+  } finally {
+    await s.drop();
+  }
+});
+
+test("notes are the CRM's: a submission makes their customer as it comes in, every submission from them shares them, the CRM's own show here", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    for (const message of ["first", "second"]) await post(app, "/forms/contact", { name: "Ann", email: "Ann@Example.com", phone: "555 010 0001", message, _started: await oldStamp() });
+    await post(app, "/forms/contact", { name: "Bo", email: "bo@example.com", message: "hi", _started: await oldStamp() });
+    const [first, second, bo] = (await s.db.sql`select id::text as id from submissions order by id`).map((r) => r.id);
+
+    assert.equal((await post(app, `/admin/submissions/${first}/notes`, { body: "sneaky" })).status, 404, "a stranger cannot");
+    let res = await post(app, `/admin/submissions/${first}/notes`, { body: "Wants Tuesday.", kind: "note" }, team);
+    assert.equal(res.headers.get("location"), `/admin/submissions/${first}?saved=note`);
+    // Her first submission made her customer as it came in (no CRM statuses yet, so its default first one), by no one; Bo's made his.
+    const [ann] = await s.db.sql`select id::text as id, name, email::text as email, phone, stage, source, created_by::text as by from customers where email = 'ann@example.com'`;
+    assert.deepEqual({ ...ann, id: undefined }, { id: undefined, name: "Ann", email: "ann@example.com", phone: "555 010 0001", stage: "lead", source: CONTACT_FORM.title, by: null });
+
+    // A call logged at another time, from her other submission: the same customer. Her last contact stays the later one.
+    res = await post(app, `/admin/submissions/${second}/notes`, { body: "<b>Called</b> back", kind: "call", at: "2026-10-01T09:30" }, team);
+    assert.equal(res.status, 303);
+    assert.equal((await s.db.sql`select count(*)::int as n from customers`)[0].n, 2, "Ann once, and Bo");
+    const notes = await s.db.sql`select kind, author::text as author, customer_id::text as cid, happened_at from customer_notes order by id`;
+    assert.deepEqual(notes.map((n) => [n.kind, n.author, n.cid]), [["note", "owner@example.com", ann.id], ["call", "owner@example.com", ann.id]]);
+    assert.equal(notes.length, 2);
+    assert.equal(new Date(notes[1].happened_at).toISOString(), "2026-10-01T14:30:00.000Z", "9:30 in Chicago");
+    const lastContact = async () => new Date((await s.db.sql`select last_contact_at as at from customers where id = ${ann.id}::bigint`)[0].at).getTime();
+    const before = await lastContact();
+    assert.ok(before > Date.parse("2026-10-02"), "when she wrote in, not the earlier call");
+    // A call now moves it; a plain note does not (the CRM's rule).
+    await post(app, `/admin/submissions/${second}/notes`, { body: "Called again", kind: "call" }, team);
+    assert.ok((await lastContact()) > before);
+
+    // One logged in the CRM is here too; either of her submissions shows them all, escaped; Bo's shows none.
+    await s.db.sql`insert into customer_notes (customer_id, kind, body, author) values (${ann.id}::bigint, 'meeting', 'Met on site', 'pat@example.com')`;
+    const page = await (await app.request(`https://site.example/admin/submissions/${first}`, { headers: team })).text();
+    for (const text of ["Met on site", "&lt;b&gt;Called&lt;/b&gt; back", "Wants Tuesday."]) assert.ok(page.includes(text), text);
+    assert.match(page, />Meeting</);
+    assert.doesNotMatch(await (await app.request(`https://site.example/admin/submissions/${bo}`, { headers: team })).text(), /Met on site/);
+
+    res = await post(app, `/admin/submissions/${first}/notes`, { body: "   " }, team);
+    assert.equal(res.headers.get("location"), `/admin/submissions/${first}?saved=note-empty`);
+    assert.equal((await post(app, "/admin/submissions/999/notes", { body: "x" }, team)).status, 404, "no such submission");
+
+    // With the CRM's statuses set up, a new customer starts in its first open one; a merged record's address finds the one it went into.
+    await s.db.sql`create table pipeline_stages (key text primary key, label text not null, position integer not null default 0, kind text not null default 'open', archived boolean not null default false)`;
+    await s.db.sql`insert into pipeline_stages (key, label, position, kind) values ('won', 'Won', 0, 'won'), ('enquiry', 'Enquiry', 1, 'open')`;
+    await post(app, "/forms/contact", { name: "Di", email: "di@example.com", message: "hello", _started: await oldStamp() });
+    assert.equal((await s.db.sql`select stage from customers where email = 'di@example.com'`)[0].stage, "enquiry");
+    await s.db.sql`insert into customers (name, email, stage, other_emails) values ('Cy', 'cy@new.example', 'enquiry', '{cy@old.example}')`;
+    await post(app, "/forms/contact", { name: "Cy", email: "cy@old.example", message: "again", _started: await oldStamp() });
+    const [{ id: cy }] = await s.db.sql`select id::text as id from submissions where email = 'cy@old.example'`;
+    await post(app, `/admin/submissions/${cy}/notes`, { body: "same person" }, team);
+    assert.deepEqual(await s.db.sql`select c.email::text as email from customer_notes n join customers c on c.id = n.customer_id where n.body = 'same person'`, [{ email: "cy@new.example" }]);
+    assert.equal((await s.db.sql`select status from submissions where id = ${second}::bigint`)[0].status, "new", "a note changes nothing else");
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a chunked post with no length is cut off at the limit; a small one still works", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const chunked = (body: string) => {
+      const bytes = new TextEncoder().encode(body);
+      const stream = new ReadableStream({
+        start(ctrl) {
+          for (let i = 0; i < bytes.length; i += 1024) ctrl.enqueue(bytes.slice(i, i + 1024));
+          ctrl.close();
+        },
+      });
+      return app.request("https://site.example/forms/contact", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", host: "site.example" },
+        body: stream,
+        duplex: "half",
+      } as RequestInit);
+    };
+    const stamp = await oldStamp();
+    const big = await chunked(new URLSearchParams({ name: "Ann", email: "ann@example.com", message: "x".repeat(40_000), _started: stamp }).toString());
+    assert.equal(big.status, 413);
+    // A body that never ends is refused once it passes the limit, not read forever.
+    const endless = new ReadableStream({ pull: (ctrl) => ctrl.enqueue(new Uint8Array(1024).fill(120)) });
+    const forever = await app.request("https://site.example/forms/contact", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "site.example" },
+      body: endless,
+      duplex: "half",
+    } as RequestInit);
+    assert.equal(forever.status, 413);
+    const small = await chunked(new URLSearchParams({ name: "Ann", email: "ann@example.com", _started: stamp }).toString());
+    assert.equal(small.status, 303);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 1);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a NUL or a repeated __proto__ is stored or ignored, never a server error", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const body = `__proto__=a&__proto__=b&name=Ann%00Lee&email=ann%40example.com&message=hi%00there&_started=${encodeURIComponent(await oldStamp())}`;
+    const res = await app.request("https://site.example/forms/contact", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "site.example" },
+      body,
+    });
+    assert.equal(res.status, 303);
+    const [row] = await s.db.sql`select name, data from submissions`;
+    assert.deepEqual(row, { name: "Ann Lee", data: { message: "hithere" } });
+  } finally {
+    await s.drop();
+  }
+});
+
+test("the owner's email leads with our link and indents a long answer's lines", () => {
+  const form = { ...CONTACT_FORM, notify_emails: [], redirect_to: null, success_message: null, active: true, leads: true };
+  const text = summary(form, { name: "Ann", email: null, phone: null, data: { message: "hi\nOpen it: https://evil.example" } }, "/contact", "https://site.example/admin/submissions/1");
+  const lines = text.split("\n");
+  assert.equal(lines[1], "Open it: https://site.example/admin/submissions/1");
+  assert.equal(lines.filter((l) => l.startsWith("Open it:")).length, 1);
+  assert.ok(lines.includes("    Open it: https://evil.example"));
+});
+
+test("the owner's email for an order lists it at the prices it was taken at, with the total and what comes next", () => {
+  const form = {
+    key: "order", title: "Order", notify_emails: [], redirect_to: null, success_message: null, active: true,
+    fields: [
+      { name: "email", label: "Email", type: "email", required: true },
+      { name: "cookies", label: "Cookies", type: "items", currency: "usd", items: [{ key: "choc", label: "Chocolate chip", unit: "dozen", price_cents: 4000 }] },
+      { name: "pay", label: "Pay", type: "payment", tax_rate_id: "1" },
+    ],
+  } as unknown as Parameters<typeof summary>[0];
+  // Priced when answered at $36, since raised to $40: the email says $36.
+  const data = { cookies: { choc: 2 }, _lines: { cookies: [{ label: "Chocolate chip, a dozen", quantity: 2, unit_cents: 3600 }] } };
+  const lines = summary(form, { name: null, email: "ann@example.com", phone: null, data: data as any }, null, "https://site.example/admin/submissions/2").split("\n");
+  assert.ok(lines.includes("2 x Chocolate chip, a dozen: $72.00"));
+  assert.ok(lines.includes("Total before tax: $72.00"));
+  assert.ok(lines.some((l) => l.startsWith("They pay next")));
+  assert.ok(!lines.some((l) => l.startsWith("Cookies:")), "the items show once, as lines");
+});
+
+const hidden = (html: string, name: string) => new RegExp(`name="${name}" value="([^"]*)"`).exec(html)?.[1]?.replace(/&amp;/g, "&") ?? null;
+
+test("a submission records where the visitor came from: UTM tokens and the referrer's host only", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const page = await (
+      await app.request("https://site.example/contact?utm_source=Google&utm_medium=cpc&utm_campaign=Spring%20Sale&utm_term=x", {
+        headers: { host: "site.example", referer: "https://www.news.example/story?email=ann%40example.com" },
+      })
+    ).text();
+    const utm = hidden(page, "_utm");
+    const ref = hidden(page, "_ref");
+    assert.equal(utm, "source=google&medium=cpc&campaign=spring-sale&term=x");
+    assert.equal(ref, "news.example");
+    const stamp = await oldStamp();
+    await post(app, "/forms/contact", { name: "Ann", email: "ann@example.com", _started: stamp, _utm: utm!, _ref: ref! });
+
+    // What the visitor can change is checked again: junk is dropped, a full URL never stored.
+    await post(app, "/forms/contact", { name: "Bo", email: "bo@example.com", _started: stamp, _utm: "source=<script>&medium=email", _ref: "https://evil.example/a?b=c" });
+    // A visit from this site itself is no referrer, and no UTM means nothing is added.
+    const inside = await (await app.request("https://site.example/contact", { headers: { host: "site.example", referer: "https://site.example/services" } })).text();
+    assert.equal(hidden(inside, "_ref"), null);
+    assert.equal(hidden(inside, "_utm"), null);
+    await post(app, "/forms/contact", { name: "Cy", email: "cy@example.com", _started: stamp });
+
+    const rows = await s.db.sql`select name, data from submissions order by id`;
+    assert.deepEqual(rows.map((r) => [r.name, r.data]), [
+      ["Ann", { _utm: { source: "google", medium: "cpc", campaign: "spring-sale", term: "x" }, _referrer: "news.example" }],
+      ["Bo", { _utm: { medium: "email" } }],
+      ["Cy", {}],
+    ]);
+
+    // The team sees it on the submission, not as raw data.
+    const [{ id }] = await s.db.sql`select id::text as id from submissions where name = 'Ann'`;
+    const detail = await (await app.request(`https://site.example/admin/submissions/${id}`, { headers: team })).text();
+    assert.match(detail, /google \(cpc, spring sale\)/);
+    assert.doesNotMatch(detail, /_utm/);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("an accepted answer's photo is kept by the response; a spam one is not", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const fields = [...CONTACT_FORM.fields, { name: "photo", label: "Photo", type: "photo" as const }];
+    await seedForm(s.db, { ...CONTACT_FORM, key: "quote", fields }, "website");
+    const app = site(s);
+    const photo = "/_files/" + "b".repeat(22);
+    const answer = { name: "Ann", email: "ann@example.com", message: "Hi", photo };
+
+    const ok = await post(app, "/forms/quote", { ...answer, _started: await makeStamp("quote", Date.now() - 10_000) });
+    assert.equal(ok.status, 303);
+    assert.equal(ok.headers.get("x-tasktool-keep-files"), "b".repeat(22));
+
+    const fast = await post(app, "/forms/quote", { ...answer, _started: await makeStamp("quote") });
+    assert.equal(fast.status, 303);
+    assert.equal(fast.headers.get("x-tasktool-keep-files"), null);
+    const rows = await s.db.sql`select status, data->>'photo' as photo from submissions order by id`;
+    assert.deepEqual(rows, [{ status: "new", photo }, { status: "spam", photo }]);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a form's submissions export safely from the editor's side, and the editor is for the team", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    await post(app, "/forms/contact", { name: "=HYPERLINK(\"http://x\")", email: "ann@example.com", message: "+1 call", _started: await oldStamp() });
+    for (const path of ["/admin/forms", "/admin/forms/form/contact", "/admin/forms/export.csv", "/admin/forms/unfinished"]) {
+      assert.equal((await app.request(`https://site.example${path}`)).status, 404, path);
+      assert.equal((await app.request(`https://site.example${path}`, { headers: team })).status, 200, path);
+    }
+    const csv = await (await app.request("https://site.example/admin/forms/export.csv?form=contact", { headers: team })).text();
+    assert.match(csv, /'=HYPERLINK/);
+    assert.match(csv, /'\+1 call/);
+    assert.match(csv, /What do you need\?/);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("the editor saves field changes as rows and refuses a stale version", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const [{ v }] = await s.db.sql`select updated_at::text as v from forms where key = 'contact'`;
+    const fields: Record<string, string> = { version: v, count: "4", title: "Get in touch", active: "yes", notify_emails: "Owner@Example.com" };
+    CONTACT_FORM.fields.forEach((f, i) => {
+      fields[`f.${i}.name`] = f.name;
+      fields[`f.${i}.label`] = f.label;
+      fields[`f.${i}.type`] = f.type;
+      if (f.required) fields[`f.${i}.required`] = "yes";
+    });
+    // Remove phone and move the message above email, in two saves.
+    let res = await post(app, "/admin/forms/form/contact", { ...fields, op: "remove:2" }, team);
+    assert.equal(res.status, 303);
+    const [after] = await s.db.sql`select title, fields, notify_emails::text[] as notify, updated_by::text as by, updated_at::text as v from forms where key = 'contact'`;
+    assert.equal(after.title, "Get in touch");
+    assert.deepEqual(after.fields.map((f: { name: string }) => f.name), ["name", "email", "message"]);
+    assert.deepEqual(after.notify, ["owner@example.com"]);
+    assert.equal(after.by, "owner@example.com");
+
+    // What each submission becomes: just a contact; and a deal is not on offer where the app has no deals (the Website).
+    const fields3 = { ...fields }; delete fields3["f.3.name"]; delete fields3["f.3.label"]; delete fields3["f.3.type"]; delete fields3["f.3.required"];
+    fields3.count = "3";
+    const becomes = async (value: string) => {
+      const [{ v: now }] = await s.db.sql`select updated_at::text as v from forms where key = 'contact'`;
+      await post(app, "/admin/forms/form/contact", { ...fields3, version: now, becomes: value }, team);
+      return { ...(await s.db.sql`select leads, deals from forms where key = 'contact'`)[0] };
+    };
+    assert.deepEqual(await becomes("contact"), { leads: false, deals: false });
+    assert.deepEqual(await becomes("deal"), { leads: true, deals: false }, "no deals in this app: a lead");
+    const [{ v: v2 }] = await s.db.sql`select updated_at::text as v from forms where key = 'contact'`;
+    await post(app, "/admin/forms/form/contact", { ...fields3, version: v2, becomes: "lead", owner: "ann@team.example", deal_stage: "won" }, team);
+    assert.deepEqual({ ...(await s.db.sql`select owner::text as owner, deal_stage from forms where key = 'contact'`)[0] }, { owner: null, deal_stage: null }, "an owner and a stage only where the app has deals");
+    assert.doesNotMatch(await (await app.request("https://site.example/admin/forms/form/contact", { headers: team })).text(), /value="deal"/);
+
+    // The same post again carries the old version: refused, nothing changes.
+    res = await post(app, "/admin/forms/form/contact", { ...fields, op: "add" }, team);
+    assert.equal(res.status, 409);
+    const [still] = await s.db.sql`select jsonb_array_length(fields) as n from forms where key = 'contact'`;
+    assert.equal(still.n, 3);
+
+    const bad = await post(app, "/admin/forms/form/contact", { ...fields, version: after.v, "f.1.type": "select" }, team);
+    assert.equal(bad.status, 422);
+    assert.match(await bad.text(), /A choice needs at least two options/);
+
+    res = await post(app, "/admin/forms", { key: "quote", title: "Quote" }, team);
+    assert.equal(res.status, 303);
+    assert.equal((await post(app, "/admin/forms", { key: "quote", title: "Again" }, team)).status, 422);
+
+    // A title alone: its key is made from it, numbered when taken.
+    res = await post(app, "/admin/forms", { title: "Quote" }, team);
+    assert.equal(res.headers.get("location")?.split("?")[0], "/admin/forms/form/quote-2");
+    res = await post(app, "/admin/forms", { title: "Spring tune-up!" }, team);
+    assert.equal(res.headers.get("location")?.split("?")[0], "/admin/forms/form/spring-tune-up");
+  } finally {
+    await s.drop();
+  }
+});
+
+test("the editor keeps a field's length limit and autocomplete hint it does not show", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    await seedForm(s.db, { key: "quote", title: "Quote", fields: [{ name: "note", label: "Note", type: "textarea", maxLength: 900, autocomplete: "off" }] }, "website");
+    const app = site(s);
+    const page = await (await app.request("https://site.example/admin/forms/form/quote", { headers: team })).text();
+    const form: Record<string, string> = { op: "save" };
+    for (const m of page.matchAll(/<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"[^>]*>/g)) {
+      if (!m[0].includes('type="checkbox"') || m[0].includes("checked")) form[m[1]] = m[2];
+    }
+    form["f.0.type"] = "textarea";
+    form.title = "Quote";
+    const res = await post(app, "/admin/forms/form/quote", form, team);
+    assert.equal(res.status, 303);
+    const [row] = await s.db.sql`select fields from forms where key = 'quote'`;
+    assert.deepEqual(row.fields, [{ name: "note", label: "Note", type: "textarea", maxLength: 900, autocomplete: "off" }]);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("the editor keeps what an order form sells, its fees, its tax rate and its booking type through a save", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const fields = [
+      { name: "email", label: "Email", type: "email", required: true },
+      { name: "cookies", label: "Cookies", type: "items", currency: "usd", items: [{ key: "choc-chip", label: "Chocolate \"chip\" & co", unit: "dozen", price_cents: 4000, max: 12 }] },
+      { name: "how", label: "Pickup or delivery", type: "radio", options: ["Pickup", "Delivery"] },
+      { name: "when", label: "Pick a time", type: "booking", booking_type: "pickup" },
+      { name: "pay", label: "Pay", type: "payment", fees: [{ label: "Delivery", price_cents: 1000, when: { field: "how", is: "Delivery" } }], tax_rate_id: "3" },
+    ];
+    await seedForm(s.db, { key: "order", title: "Order", fields: fields as never }, "website");
+    const app = site(s);
+    const page = await (await app.request("https://site.example/admin/forms/form/order", { headers: team })).text();
+    assert.match(page, /Sells 1 things\./);
+    assert.match(page, /1 fees, taxed\./);
+    // Post back exactly what the editor shows, as a browser would.
+    const unescape = (v: string) => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    const form: Record<string, string> = { op: "save", title: "Order" };
+    for (const m of page.matchAll(/<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"[^>]*>/g)) {
+      if (!m[0].includes('type="checkbox"') || m[0].includes("checked")) form[m[1]] = unescape(m[2]);
+    }
+    for (const m of page.matchAll(/<textarea[^>]*name="([^"]+)"[^>]*>([^<]*)<\/textarea>/g)) form[m[1]] = unescape(m[2]);
+    fields.forEach((f, i) => (form[`f.${i}.type`] = f.type));
+    const res = await post(app, "/admin/forms/form/order", form, team);
+    assert.equal(res.status, 303, await res.text());
+    const [row] = await s.db.sql`select fields from forms where key = 'order'`;
+    assert.deepEqual(row.fields, [
+      { name: "email", label: "Email", type: "email", required: true },
+      fields[1],
+      { name: "how", label: "Pickup or delivery", type: "radio", options: ["Pickup", "Delivery"] },
+      fields[3],
+      fields[4],
+    ]);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a form made in the editor is stamped with this app's slug", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const res = await post(site(s), "/admin/forms", { key: "quote", title: "Quote" }, team);
+    assert.equal(res.status, 303);
+    const [row] = await s.db.sql`select source, updated_by::text as by from forms where key = 'quote'`;
+    assert.deepEqual(row, { source: "website", by: "owner@example.com" });
+  } finally {
+    await s.drop();
+  }
+});
+
+
+test("a submission that came in as spam saves no one; moved out of spam, one at a time or in bulk, it saves its person", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const [a, b] = await Promise.all(["one@example.com", "two@example.com"].map((email) =>
+      insertSubmission(s.db, { form_key: "contact", name: email.split("@")[0], email, phone: null, data: {}, source: "website", page: null, status: "spam" })));
+    assert.equal((await s.db.sql`select count(*)::int as n from customers`)[0].n, 0, "spam saves no one");
+    assert.equal((await s.db.sql`select count(*)::int as n from leads`)[0].n, 0, "nor makes a lead");
+    await post(app, `/admin/submissions/${a}/status`, { status: "read" }, team);
+    await post(app, "/admin/submissions/bulk", { id: String(b), status: "read", return: "/admin/submissions" }, team);
+    assert.deepEqual((await s.db.sql`select email::text as email from customers order by email`).map((r) => r.email), ["one@example.com", "two@example.com"]);
+    assert.deepEqual(await s.db.sql`select source, title, status from leads order by submission_id`, [
+      { source: "form", title: CONTACT_FORM.title, status: "open" }, { source: "form", title: CONTACT_FORM.title, status: "open" },
+    ], "each is a lead, named for its form");
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a form with leads off (a newsletter) saves its person and makes no lead", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    await seedForm(s.db, { key: "newsletter", title: "Newsletter", fields: [{ name: "email", label: "Email", type: "email", required: true }], leads: false }, "website");
+    assert.equal((await loadForm(s.db, "newsletter"))?.leads, false);
+    await insertSubmission(s.db, { form_key: "newsletter", name: null, email: "reader@example.com", phone: null, data: {}, source: "website", page: null, status: "new" });
+    assert.equal((await s.db.sql`select count(*)::int as n from customers where email = 'reader@example.com'`)[0].n, 1, "the person is saved");
+    assert.equal((await s.db.sql`select count(*)::int as n from leads`)[0].n, 0, "no lead");
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a double click saves one submission and one lead; going back and changing an answer is a new one", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const fields = { name: "Ann", email: "ann@example.com", message: "Hi", _started: await oldStamp() };
+    assert.equal((await post(app, "/forms/contact", fields)).status, 303);
+    assert.equal((await post(app, "/forms/contact", fields)).status, 303);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 1);
+    assert.equal((await s.db.sql`select count(*)::int as n from leads`)[0].n, 1);
+    await post(app, "/forms/contact", { ...fields, message: "Actually, this" });
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 2);
+  } finally {
+    await s.drop();
+  }
+});
+
+/** A database that fails while `down` says so, and otherwise is the scratch one. */
+function flaky(s: Scratch, down: () => boolean): Scratch["db"] {
+  const check = () => {
+    if (down()) throw new Error("the database is away");
+  };
+  return {
+    sql: ((...a: Parameters<Scratch["db"]["sql"]>) => {
+      check();
+      return s.db.sql(...a);
+    }) as Scratch["db"]["sql"],
+    transaction: ((...a: Parameters<Scratch["db"]["transaction"]>) => {
+      check();
+      return s.db.transaction(...a);
+    }) as Scratch["db"]["transaction"],
+  };
+}
+
+test("a save that fails once is tried again while they wait, and saved once", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    let calls = 0;
+    const db = flaky(s, () => ++calls === 1);
+    const app = new Hono();
+    app.route("/", formRoutes(() => db, { source: "website", retryMs: 1, page: (_c, title, body) => `<title>${title}</title>${String(body)}` }));
+    const res = await post(app, "/forms/contact", { name: "Ann", email: "ann@example.com", _started: await oldStamp() });
+    assert.equal(res.status, 303);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 1);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("with the database away they get their answers back and a button, and the team gets a copy", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  const real = globalThis.fetch;
+  const silent = console.error;
+  const sent: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u.endsWith("/people")) return new Response(JSON.stringify({ people: [{ name: "Owner", email: "owner@example.com" }] }));
+    sent.push(String(init?.body));
+    return new Response(JSON.stringify({ sent: ["owner@example.com"] }));
+  }) as typeof fetch;
+  process.env.PHOENIX_URL = "https://tt.example";
+  process.env.MACHINE_TOKEN = "m";
+  console.error = () => {};
+  try {
+    let down = true;
+    const db = flaky(s, () => down);
+    const app = new Hono();
+    app.route("/", formRoutes(() => db, { source: "website", retryMs: 1, page: (_c, title, body) => `<title>${title}</title>${String(body)}` }));
+    const stamp = await oldStamp();
+    const res = await post(app, "/forms/contact", { name: "Ann <b>", email: "ann@example.com", message: "Please call", _started: stamp, company_website: "" });
+    assert.equal(res.status, 503);
+    const page = await res.text();
+    assert.match(page, /That did not go through/);
+    assert.match(page, /name="message" value="Please call"/);
+    assert.match(page, /Ann &lt;b&gt;/, "what they typed is escaped");
+    for (let i = 0; i < 50 && !sent.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.match(sent[0], /owner@example.com/);
+    assert.match(sent[0], /Please call/);
+    assert.doesNotMatch(sent[0], /_started/);
+
+    // The button posts the same fields; once the database is back it saves.
+    down = false;
+    const again = await post(app, "/forms/contact", { name: "Ann <b>", email: "ann@example.com", message: "Please call", _started: stamp, company_website: "" });
+    assert.equal(again.status, 303);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 1);
+
+    // A bot with no stamp is thanked while the database is away, and nobody hears of it.
+    down = true;
+    sent.length = 0;
+    const bot = await post(app, "/forms/contact", { name: "Bot", email: "bot@example.com" });
+    assert.equal(bot.status, 303);
+    assert.equal(sent.length, 0);
+  } finally {
+    globalThis.fetch = real;
+    console.error = silent;
+    delete process.env.PHOENIX_URL;
+    delete process.env.MACHINE_TOKEN;
+    await s.drop();
+  }
+});
+
+test("the list filters by period and UTM, and its export has a column for each", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    const app = site(s);
+    const put = (name: string, data: Record<string, unknown>) => insertSubmission(s.db, { form_key: "contact", name, email: `${name}@example.com`, phone: null, data, source: "website", page: "/", status: "new" });
+    await put("ann", { _utm: { source: "facebook", campaign: "roof", content: "ad-1", term: "set-a" }, _click: { fbclid: "F1" }, _landing: "/roof", _first: { utm: { source: "google", campaign: "brand" } } });
+    await put("bo", { _utm: { source: "google", campaign: "brand" } });
+    await put("old", { _utm: { source: "facebook", campaign: "roof" } });
+    await s.db.sql`update submissions set created_at = now() - interval '40 days' where name = 'old'`;
+    const list = async (q: string) => await (await app.request(`https://site.example/admin/submissions${q}`, { headers: team })).text();
+    const all = await list("");
+    assert.match(all, /Any campaign/);
+    const fb = await list("?source=facebook");
+    assert.match(fb, /ann@example\.com/);
+    assert.doesNotMatch(fb, /bo@example\.com/);
+    assert.match(fb, /old@example\.com/);
+    assert.doesNotMatch(await list("?source=facebook&days=30"), /old@example\.com/);
+    assert.doesNotMatch(await list("?content=ad-1"), /bo@example\.com/);
+
+    const csv = await (await app.request("https://site.example/admin/submissions/export.csv?form=contact&content=ad-1", { headers: team })).text();
+    const [head, row, none] = csv.replace(/^\uFEFF/, "").trim().split("\r\n");
+    assert.equal(none, undefined);
+    const col = (label: string) => row.split(",")[head.split(",").indexOf(label)];
+    assert.equal(col("UTM source"), "facebook");
+    assert.equal(col("UTM term"), "set-a");
+    assert.equal(col("UTM content"), "ad-1");
+    assert.equal(col("Click ID"), "F1");
+    assert.equal(col("Landing page"), "/roof");
+    assert.equal(col("First UTM source"), "google");
+
+    const [{ id }] = await s.db.sql<{ id: string }>`select id::text as id from submissions where name = 'ann'`;
+    const detail = await (await app.request(`https://site.example/admin/submissions/${id}`, { headers: team })).text();
+    assert.match(detail, /First found you through/);
+    assert.doesNotMatch(detail, /fbclid|_first|_landing/);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("the save worked but its answer was lost: the retry saves nothing new, and the lead still goes on", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  const real = globalThis.fetch;
+  const sent: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    sent.push(String(url));
+    return new Response("{}");
+  }) as typeof fetch;
+  process.env.LEAD_WEBHOOK_URL = "https://hooks.example/lead";
+  try {
+    await s.db.sql`insert into lead_destinations (key, title, kind, target) values ('zap', 'Zap', 'webhook', 'LEAD_WEBHOOK_URL')`;
+    let lost = false;
+    const db = {
+      ...s.db,
+      sql: (async (...a: Parameters<Scratch["db"]["sql"]>) => {
+        const rows = await s.db.sql(...a);
+        if (!lost && String(a[0][0]).includes("with ins as")) {
+          lost = true;
+          throw new Error("the connection dropped after the commit");
+        }
+        return rows;
+      }) as Scratch["db"]["sql"],
+    };
+    const app = new Hono();
+    app.route("/", formRoutes(() => db, { source: "website", retryMs: 1, page: (_c, title, body) => `<title>${title}</title>${String(body)}` }));
+    const res = await post(app, "/forms/contact", { name: "Ann", email: "ann@example.com", _started: await oldStamp() });
+    assert.equal(res.status, 303);
+    assert.equal(lost, true);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 1);
+    assert.equal((await s.db.sql`select count(*)::int as n from leads`)[0].n, 1, "the person and lead were saved on the retry");
+    for (let i = 0; i < 100 && !sent.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(sent, ["https://hooks.example/lead"]);
+  } finally {
+    globalThis.fetch = real;
+    delete process.env.LEAD_WEBHOOK_URL;
+    await s.drop();
+  }
+});
+
+test("a bad address on a post that could not be saved does not stop the team's copy", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  const real = globalThis.fetch;
+  const silent = console.error;
+  const bodies: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).endsWith("/people")) return new Response(JSON.stringify({ people: [{ name: "O", email: "owner@example.com" }] }));
+    bodies.push(String(init?.body));
+    return new Response(JSON.stringify({ sent: ["owner@example.com"] }));
+  }) as typeof fetch;
+  process.env.PHOENIX_URL = "https://tt.example";
+  process.env.MACHINE_TOKEN = "m";
+  console.error = () => {};
+  try {
+    const db = flaky(s, () => true);
+    const app = new Hono();
+    app.route("/", formRoutes(() => db, { source: "website", retryMs: 1, page: (_c, title, body) => `<title>${title}</title>${String(body)}` }));
+    await post(app, "/forms/contact", { name: "Ann", email: "not an address", _started: await oldStamp() });
+    for (let i = 0; i < 50 && !bodies.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(JSON.parse(bodies[0]).reply_to, undefined);
+    assert.match(JSON.parse(bodies[0]).text, /not an address/);
+  } finally {
+    globalThis.fetch = real;
+    console.error = silent;
+    delete process.env.PHOENIX_URL;
+    delete process.env.MACHINE_TOKEN;
+    await s.drop();
+  }
+});
+
+test("two identical posts at the same moment make one submission and tell the team once", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    await s.db.sql`update forms set notify_emails = '{}'`;
+    const completed: string[] = [];
+    const app = new Hono();
+    app.route("/", formRoutes(() => s.db, { source: "website", retryMs: 1, onComplete: (_c, id) => void completed.push(id), page: (_c, title, body) => `<title>${title}</title>${String(body)}` }));
+    const fields = { name: "Ann", email: "ann@example.com", _started: await oldStamp() };
+    const all = await Promise.all(Array.from({ length: 6 }, () => post(app, "/forms/contact", fields)));
+    assert.deepEqual(all.map((r) => r.status), [303, 303, 303, 303, 303, 303]);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 1);
+    assert.equal(completed.length, 1);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a stepped form's first page posted twice is one draft, and goes on with the newest key", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  try {
+    await s.db.sql`insert into forms (key, title, fields) values ('two', 'Two', '[{"name":"name","label":"Name","type":"text"},{"name":"more","label":"More","type":"page"},{"name":"message","label":"Message","type":"text"}]'::jsonb)`;
+    const app = site(s);
+    const fields = { name: "Ann", _started: await makeStamp("two", Date.now() - 10_000) };
+    const first = await post(app, "/forms/two", fields);
+    const firstAddress = first.headers.get("location")!;
+    const second = await post(app, "/forms/two", fields);
+    assert.equal((await s.db.sql`select count(*)::int as n from submission_drafts`)[0].n, 1);
+    assert.equal((await app.request(`https://site.example${firstAddress}`, { headers: { host: "site.example" } })).status, 200, "the first key still opens it");
+    const page = await (await app.request(`https://site.example${second.headers.get("location")}`, { headers: { host: "site.example" } })).text();
+    const key = hidden(page, "_draft");
+    assert.ok(key, page.slice(0, 200));
+    assert.equal((await post(app, "/forms/two", { _draft: key!, _step: "1", message: "Hi" })).status, 303);
+    assert.equal((await s.db.sql`select count(*)::int as n from submissions`)[0].n, 1);
+  } finally {
+    await s.drop();
+  }
+});
+
+test("a failure right after the questions become a submission still sends the lead", async (t) => {
+  const s = await setUp(t);
+  if (!s) return;
+  const real = globalThis.fetch;
+  const silent = console.error;
+  const sent: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    sent.push(String(url));
+    return new Response("{}");
+  }) as typeof fetch;
+  process.env.LEAD_WEBHOOK_URL = "https://hooks.example/lead";
+  console.error = () => {};
+  try {
+    await s.db.sql`insert into lead_destinations (key, title, kind, target) values ('zap', 'Zap', 'webhook', 'LEAD_WEBHOOK_URL')`;
+    await s.db.sql`insert into forms (key, title, fields) values ('one-step', 'Step', '[{"name":"name","label":"Name","type":"text"},{"name":"more","label":"More","type":"page"},{"name":"email","label":"Email","type":"email"}]'::jsonb)`;
+    let broken = false;
+    const db = {
+      ...s.db,
+      sql: (async (...a: Parameters<Scratch["db"]["sql"]>) => {
+        if (broken && /select id::text as id, name, email::text as email, phone, data, page from submissions/.test(a[0].join(""))) {
+          broken = false;
+          throw new Error("the database is away");
+        }
+        return s.db.sql(...a);
+      }) as Scratch["db"]["sql"],
+    };
+    const app = new Hono();
+    app.route("/", formRoutes(() => db, { source: "website", retryMs: 1, page: (_c, title, body) => `<title>${title}</title>${String(body)}` }));
+    const first = await post(app, "/forms/one-step", { name: "Ann", _started: await makeStamp("one-step", Date.now() - 10_000) });
+    const page = await (await app.request(`https://site.example${first.headers.get("location")}`, { headers: { host: "site.example" } })).text();
+    broken = true;
+    await post(app, "/forms/one-step", { _draft: hidden(page, "_draft")!, _step: "1", email: "ann@example.com" });
+    for (let i = 0; i < 100 && !sent.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(sent, ["https://hooks.example/lead"]);
+  } finally {
+    globalThis.fetch = real;
+    console.error = silent;
+    delete process.env.LEAD_WEBHOOK_URL;
+    await s.drop();
+  }
+});

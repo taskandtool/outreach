@@ -1,0 +1,310 @@
+// Reading forms and writing submissions. The Website and the CRM look in the
+// same submissions table.
+import { saveLead, savePerson, type CustomerRef } from "../customers/customer";
+import { q, type Db } from "../data/db";
+import type { Sent } from "../data/send";
+import { tokenHash } from "../data/token";
+import { checkFields, sitePath, type Field, type Form, type Submission } from "./fields";
+import type { Charge } from "./price";
+
+/** The form with this key, or null. A broken field in the row is left out, never rendered half-made. */
+export async function loadForm(db: Db, key: string): Promise<Form | null> {
+  const [row] = await db.sql`
+    select key, title, fields, notify_emails::text[] as notify_emails, redirect_to, success_message, submit_label, active, leads, deals, owner::text as owner, deal_stage, follow_up
+    from forms where key = ${key}`;
+  return row ? toForm(row) : null;
+}
+
+export function toForm(row: Record<string, any>): Form {
+  return {
+    key: row.key,
+    title: row.title,
+    fields: checkFields(row.fields).fields,
+    notify_emails: row.notify_emails ?? [],
+    redirect_to: sitePath(row.redirect_to),
+    success_message: row.success_message ?? null,
+    submit_label: row.submit_label ?? null,
+    active: row.active !== false,
+    leads: row.leads !== false,
+    deals: row.leads !== false && row.deals === true,
+    owner: row.owner ?? null,
+    deal_stage: row.deal_stage ?? null,
+    follow_up: row.follow_up === true || row.follow_up === "true",
+  };
+}
+
+/**
+ * Create a form if no row has its key yet. Never overwrites: once the row
+ * exists it is the owner's, changed through the forms command or an app's editor (the CRM's). Run from setup.
+ */
+export async function seedForm(db: Db, form: { key: string; title: string; fields: Field[] } & Partial<Form>, source: string): Promise<void> {
+  await db.sql`
+    insert into forms (key, title, fields, notify_emails, redirect_to, success_message, submit_label, leads, source)
+    values (${form.key}, ${form.title}, ${JSON.stringify(form.fields)}::jsonb, ${form.notify_emails ?? []}::citext[],
+            ${form.redirect_to ?? null}, ${form.success_message ?? null}, ${form.submit_label ?? null}, ${form.leads !== false}, ${source})
+    on conflict (key) do nothing`;
+}
+
+/**
+ * What came of telling the team about a submission, kept on it in one line
+ * the admin shows: "Emailed pat@acme.example" or "Not emailed: <why>".
+ */
+export async function recordNotified(db: Db, id: number | string, to: string[], sent: Sent): Promise<void> {
+  let line: string;
+  if (sent.status === "sent") {
+    const skipped = sent.skipped ?? [];
+    const went = to.filter((e) => !skipped.some((s) => s.toLowerCase() === e.toLowerCase()));
+    line = `Emailed ${went.join(", ")}` + (skipped.length ? `. Not emailed: ${skipped.join(", ")} (cannot open this app in Task & Tool)` : "");
+  } else {
+    line = `Not emailed: ${sent.status === "none" ? sent.why : `the send failed (${sent.error.slice(0, 120)})`}`;
+  }
+  await db.sql`update submissions set notified = ${line.slice(0, 500)} where id = ${id}::bigint`;
+}
+
+/**
+ * The one post of a page, with the texting box's words if they ticked it: `key`
+ * (submitKey) is unique per form, so a double click or a retry saves once. Its id,
+ * and whether this call made it. With `again`, a retry whose first try may have
+ * been saved with the answer lost, the person is saved either way.
+ */
+export async function insertOnce(
+  db: Db,
+  s: Omit<Submission, "data"> & { data: Record<string, unknown>; form_key: string; source: string; page: string | null; status: "new" | "spam"; text_consent?: string | null },
+  key: string,
+  again = false,
+): Promise<{ id: number; made: boolean }> {
+  const consent = s.text_consent ?? null;
+  // Two statements: a post at the same moment waits on this insert, and only a new statement can then see its row.
+  const [ins] = await db.sql<{ id: string }>`
+    insert into submissions (form_key, name, email, phone, data, source, page, status, submit_key, text_consent, text_consent_at)
+    values (${s.form_key}, ${s.name}, ${s.email}, ${s.phone}, ${JSON.stringify(s.data)}::jsonb, ${s.source}, ${s.page}, ${s.status}, ${key}, ${consent}, case when ${consent}::text is null then null else now() end)
+    on conflict (form_key, submit_key) where submit_key is not null do nothing
+    returning id::text as id`;
+  const [row] = ins ? [ins] : await db.sql<{ id: string }>`select id::text as id from submissions where form_key = ${s.form_key} and submit_key = ${key}`;
+  if (s.status === "new" && (ins || again)) await keepPerson(db, row.id);
+  return { id: Number(row.id), made: !!ins };
+}
+
+/** What makes one post one: the page's stamp and exactly what was answered. Going back and changing an answer is a new post. */
+export const submitKey = (stamp: string, sub: Submission) => tokenHash(`${stamp}\n${JSON.stringify([sub.name, sub.email, sub.phone, sub.data])}`);
+
+/**
+ * saveSubmitter for a submission that is already saved: it never fails the
+ * visitor's request, who would only send the form again. Tried twice, then logged.
+ */
+async function keepPerson(db: Db, id: string | number): Promise<void> {
+  try {
+    await saveSubmitter(db, id);
+  } catch {
+    try {
+      await saveSubmitter(db, id);
+    } catch (e) {
+      console.error(`forms: submission ${id} is saved, but not its customer or lead: ${(e as Error).message}`);
+    }
+  }
+}
+
+/**
+ * The person behind a submission, saved as a customer the moment it comes in
+ * (customers savePerson: by email, else phone, never name), with the form's
+ * title as where they came from and its answers for their address, company
+ * and custom fields, and the submission as their lead (saveLead) unless the
+ * form's `leads` is off (a newsletter sign-up). Not for spam, nor the booking
+ * page's copy of a booking (the booking saves its booker). Also run when spam
+ * is marked not spam.
+ */
+export async function saveSubmitter(db: Db, id: string | number, user: string | null = null): Promise<CustomerRef | null> {
+  const [s] = await db.sql<{ name: string | null; email: string | null; phone: string | null; data: Record<string, unknown> | null; created_at: Date; source: string; leads: boolean; owner: string | null }>`
+    select s.name, s.email::text as email, s.phone, s.data, s.created_at, coalesce(f.title, s.form_key) as source, coalesce(f.leads, true) as leads,
+           f.owner::text as owner
+    from submissions s left join forms f on f.key = s.form_key
+    where s.id = ${String(id)}::bigint and s.status <> 'spam' and s.form_key <> ${BOOKING_PAGE.key}`;
+  if (!s) return null;
+  const who = await savePerson(db, { name: s.name, email: s.email, phone: s.phone, source: s.source, at: s.created_at, answers: s.data }, user);
+  // The enquiry itself is a lead, named for the form (customers saveLead; once per submission).
+  // The form's owner is the lead's, as Pipedrive's web forms assign one.
+  if (who && s.leads) await saveLead(db, { customerId: who.id, source: "form", title: s.source, submissionId: String(id), at: s.created_at, owner: s.owner }, user);
+  return who;
+}
+
+// ---- drafts: a form with steps, before its questions are all answered -------------
+
+export type Draft = {
+  id: string;
+  form_key: string;
+  /** Steps finished. */
+  step: number;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  data: Record<string, unknown>;
+  spam: boolean;
+  submission_id: string | null;
+};
+
+const toDraft = (r: Record<string, any>): Draft => ({
+  id: String(r.id), form_key: r.form_key, step: Number(r.step), name: r.name ?? null, email: r.email ?? null, phone: r.phone ?? null,
+  data: r.data ?? {}, spam: !!r.spam, submission_id: r.submission_id == null ? null : String(r.submission_id),
+});
+
+/**
+ * The first step's answers, under the key the visitor holds (its hash). The same
+ * post again (submitKey) is the same draft, and its new key opens it too: a browser
+ * that double-clicked follows the last answer it was sent, and an address already
+ * made with the first key (a cancelled checkout's) still works.
+ */
+export async function startDraft(
+  db: Db,
+  d: Omit<Submission, "data"> & { data: Record<string, unknown>; form_key: string; key_hash: string; source: string; page: string | null; spam: boolean; submit_key: string },
+): Promise<Draft> {
+  const [row] = await db.sql`
+    insert into submission_drafts (form_key, key_hash, name, email, phone, data, spam, source, page, submit_key)
+    values (${d.form_key}, ${d.key_hash}, ${d.name}, ${d.email}, ${d.phone}, ${JSON.stringify(d.data)}::jsonb, ${d.spam}, ${d.source}, ${d.page}, ${d.submit_key})
+    on conflict (form_key, submit_key) where submit_key is not null do update set text_key_hash = excluded.key_hash
+    returning *`;
+  return toDraft(row);
+}
+
+/** The draft a key opens: the visitor's own, or the second key an email carried back to it (the phone skill's draftLink). */
+export async function draftByKey(db: Db, formKey: string, keyHash: string): Promise<Draft | null> {
+  const [row] = await db.sql`
+    select * from submission_drafts where (key_hash = ${keyHash} or text_key_hash = ${keyHash}) and form_key = ${formKey}
+    order by (key_hash = ${keyHash}) desc limit 1`;
+  return row ? toDraft(row) : null;
+}
+
+/** They ticked the texting box on a page of a form with steps: its words and when, on the draft. */
+export async function keepTextConsent(db: Db, draftId: string, words: string): Promise<void> {
+  await db.sql`update submission_drafts set text_consent = ${words}, text_consent_at = now() where id = ${draftId}::bigint`;
+}
+
+/**
+ * A step's answers, merged into the draft, and the step counted, only when
+ * the draft is still at step `from`: a second post of the same step (a double
+ * click, the back button) changes nothing and says so.
+ */
+export async function saveStep(db: Db, id: string, from: number, sub: Omit<Submission, "data"> & { data: Record<string, unknown> }): Promise<boolean> {
+  const rows = await db.sql`
+    update submission_drafts set
+      name = coalesce(${sub.name}, name), email = coalesce(${sub.email}::citext, email), phone = coalesce(${sub.phone}, phone),
+      -- Each page's consent wording and order lines join the earlier pages' rather than replacing them.
+      data = data || ${JSON.stringify(sub.data)}::jsonb
+             || case when ${JSON.stringify(sub.data)}::jsonb ? '_consent'
+                     then jsonb_build_object('_consent', coalesce(data -> '_consent', '{}'::jsonb) || (${JSON.stringify(sub.data)}::jsonb -> '_consent'))
+                     else '{}'::jsonb end
+             || case when ${JSON.stringify(sub.data)}::jsonb ? '_lines'
+                     then jsonb_build_object('_lines', coalesce(data -> '_lines', '{}'::jsonb) || (${JSON.stringify(sub.data)}::jsonb -> '_lines'))
+                     else '{}'::jsonb end,
+      step = step + 1, updated_at = now()
+    where id = ${id}::bigint and step = ${from} returning id`;
+  return rows.length > 0;
+}
+
+/**
+ * The questions are answered: the draft becomes a submission, once. The draft
+ * is locked first, so two posts make one submission; the second gets the
+ * first's id. `complete` when no booking or payment step follows. Returns
+ * the submission's id and whether this call made it.
+ */
+export async function finishDraft(db: Db, id: string, complete: boolean): Promise<{ submissionId: string; made: boolean } | null> {
+  const [, made, now] = await db.transaction([
+    q`select id from submission_drafts where id = ${id}::bigint for update`,
+    q`with made as (
+        insert into submissions (form_key, name, email, phone, data, source, page, status, completed_at, text_consent, text_consent_at)
+        select form_key, name, email, phone, data, source, page, case when spam then 'spam' else 'new' end,
+               case when ${complete} then now() end, text_consent, text_consent_at
+        from submission_drafts where id = ${id}::bigint and submission_id is null
+        returning id)
+      update submission_drafts set submission_id = (select id from made), updated_at = now()
+      where id = ${id}::bigint and exists (select 1 from made)
+      returning submission_id::text`,
+    q`select submission_id::text from submission_drafts where id = ${id}::bigint`,
+  ]);
+  if (made[0]) {
+    await keepPerson(db, made[0].submission_id);
+    return { submissionId: made[0].submission_id, made: true };
+  }
+  return now[0]?.submission_id ? { submissionId: now[0].submission_id, made: false } : null;
+}
+
+/**
+ * A step after the questions is done: its charge (a booking's price) kept
+ * under the step's name, replacing any from an earlier try, and the draft
+ * moved on, together; only when the draft is still at step `from`. Moving
+ * past the `last` step completes the submission.
+ */
+export async function finishStep(db: Db, draftId: string, submissionId: string, from: number, step: string, charge: Charge | null, advance: boolean, last: boolean): Promise<boolean> {
+  const [moved] = await db.transaction([
+    q`update submission_drafts set step = step + ${advance ? 1 : 0}, updated_at = now() where id = ${draftId}::bigint and step = ${from} returning id`,
+    q`update submissions set data = jsonb_set(data, '{_charges}', (coalesce(data -> '_charges', '{}'::jsonb) - ${step}::text) || ${charge ? JSON.stringify({ [step]: charge }) : "{}"}::jsonb),
+             completed_at = case when ${advance && last} then coalesce(completed_at, now()) else completed_at end,
+             updated_at = now()
+      where id = ${submissionId}::bigint and exists (select 1 from submission_drafts where id = ${draftId}::bigint and step = ${from + (advance ? 1 : 0)})`,
+  ]);
+  return moved.length > 0;
+}
+
+/** Back to an earlier step (a held time was released): its charge goes with it, and it is not complete. */
+/** Back a step among the questions, whose answers stay on the draft to fill the page. False when it isn't on that step now. */
+export async function stepBack(db: Db, draftId: string, from: number): Promise<boolean> {
+  const rows = await db.sql`update submission_drafts set step = ${from - 1}, updated_at = now() where id = ${draftId}::bigint and step = ${from} and step > 0 returning id`;
+  return rows.length > 0;
+}
+
+export async function rewindDraft(db: Db, draftId: string, submissionId: string, to: number, step: string): Promise<void> {
+  await db.transaction([
+    q`update submission_drafts set step = ${to}, updated_at = now() where id = ${draftId}::bigint and step > ${to}`,
+    q`update submissions set data = jsonb_set(data, '{_charges}', coalesce(data -> '_charges', '{}'::jsonb) - ${step}::text),
+             completed_at = null, updated_at = now()
+      where id = ${submissionId}::bigint`,
+  ]);
+}
+
+/**
+ * A form that ends in payment is complete when Stripe says it is paid: the
+ * payments webhook's afterPaid calls this with the payment it marked
+ * (payments/webhook.ts). Returns the submission it is for, complete now or
+ * already, so what follows completion can run (and run again: it is safe
+ * to); null for a payment that is not a submission's.
+ */
+export async function completePaidSubmission(db: Db, paymentId: string): Promise<string | null> {
+  const [, [row]] = await db.transaction([
+    q`update submissions s set completed_at = now(), updated_at = now()
+      from payments p
+      where p.id = ${paymentId}::bigint and p.ref_type = 'submission' and s.id::text = p.ref_id
+        and p.status in ('paid', 'partially_refunded', 'refunded') and s.completed_at is null`,
+    q`select s.id::text as id from submissions s join payments p on s.id::text = p.ref_id
+      where p.id = ${paymentId}::bigint and p.ref_type = 'submission' and p.status in ('paid', 'partially_refunded', 'refunded')`,
+  ]);
+  return (row?.id as string | undefined) ?? null;
+}
+
+export async function submissionById(db: Db, id: string) {
+  const [row] = await db.sql`select id::text as id, name, email::text as email, phone, data, page from submissions where id = ${id}::bigint`;
+  return row
+    ? { id: row.id as string, name: row.name ?? null, email: row.email ?? null, phone: row.phone ?? null, data: (row.data ?? {}) as Record<string, unknown>, page: (row.page ?? null) as string | null }
+    : null;
+}
+
+/**
+ * The submissions a booking page makes (the Website's business.tsx): no form
+ * row, so the name is here. The CRM shows the booking itself, so it leaves
+ * these out of its leads and timeline.
+ */
+export const BOOKING_PAGE = { key: "book", title: "Booking" };
+
+/** A form's name as the team reads it: its title, the booking page's, or its key when the form is gone. */
+export const formTitle = (key: string, title?: string | null): string => title ?? (key === BOOKING_PAGE.key ? BOOKING_PAGE.title : key);
+
+/** The contact form the Website starts with; the key the old `leads` rows move to. */
+export const CONTACT_FORM: { key: string; title: string; fields: Field[]; submit_label: string } = {
+  key: "contact",
+  title: "Contact",
+  submit_label: "Send the message",
+  fields: [
+    { name: "name", label: "Name", type: "text", required: true },
+    { name: "email", label: "Email", type: "email", required: true },
+    { name: "phone", label: "Phone", type: "tel" },
+    { name: "message", label: "What do you need?", type: "textarea" },
+  ],
+};

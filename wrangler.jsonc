@@ -1,0 +1,14 @@
+// Off-platform deploys only (the no-lock-in path): clone this repo to your own
+// computer, `npm run build`, then `npx wrangler deploy` with your own Cloudflare
+// account. On Task & Tool the platform deploys for you (`npm run deploy`) and
+// this file is not read.
+{
+  "name": "outreach",
+  "main": "build/worker.mjs",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./dist",
+    // No not_found_handling: a page with no file must reach the Worker.
+    "html_handling": "auto-trailing-slash"
+  }
+}

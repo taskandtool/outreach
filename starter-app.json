@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "slug": "outreach",
+  "version": "0.1.0",
+  "needs": {
+    "capabilities": [
+      { "kind": "postgres", "strength": "suggested" }
+    ],
+    "connections": [
+      { "provider": "google-places", "strength": "suggested", "why": "Each company's Google listing: rating, hours and a few reviews for its page" },
+      { "provider": "scrapecreators", "strength": "suggested", "why": "Each company's Facebook, Instagram and LinkedIn, and the ads it is running now" },
+      { "provider": "hunter", "strength": "suggested", "why": "The owner's email address at each company, and a check that it is safe to send to" },
+      { "provider": "millionverifier", "strength": "suggested", "why": "A second check on Gmail and Outlook addresses, which Hunter can't confirm" },
+      { "provider": "instantly", "strength": "suggested", "why": "The cold email campaign approved leads go into, sent from your warmed mailboxes" }
+    ]
+  },
+  "ready": {
+    "service": "web"
+  },
+  "suggestions": [
+    {
+      "id": "choose-a-niche",
+      "label": "Choose a niche",
+      "prompt": "Make outreach pages for ",
+      "when": [{ "path": "companies.csv", "is": "missing" }]
+    },
+    {
+      "id": "how-is-it-going",
+      "label": "How is it going?",
+      "prompt": "How is it going? How many pages are ready, who has a contact, and is anything stuck?",
+      "when": [{ "path": "companies.csv", "is": "present" }]
+    },
+    {
+      "id": "find-who-to-email",
+      "label": "Find who to email",
+      "prompt": "Find who to email at the companies with a page ready, and tell me what it costs first.",
+      "when": [{ "path": "data/pages.json", "is": "present" }]
+    },
+    {
+      "id": "show-the-emails",
+      "label": "Show me the emails",
+      "prompt": "Draft the emails for the companies with a contact, and show me the list to approve.",
+      "when": [{ "path": "raw", "is": "present" }]
+    },
+    {
+      "id": "deploy-the-pages",
+      "label": "Deploy the pages",
+      "prompt": "Check the pages and deploy them to production.",
+      "when": [{ "path": "data/pages.json", "is": "present" }]
+    }
+  ]
+}

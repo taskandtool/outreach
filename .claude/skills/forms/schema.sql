@@ -1,0 +1,155 @@
+-- forms: every form in the project is a row, and every submission from any
+-- app is saved to one table the CRM reads.
+
+create table if not exists forms (
+  id              bigserial primary key,
+  key             text not null unique check (key ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
+  title           text not null,
+  fields          jsonb not null default '[]'::jsonb check (jsonb_typeof(fields) = 'array'),
+  notify_emails   citext[] not null default '{}',
+  redirect_to     text,
+  success_message text,
+  submit_label    text,
+  active          boolean not null default true,
+  leads           boolean not null default true,
+  source          text,
+  updated_by      citext,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  -- Each submission's lead becomes a deal straight away, made by the app that has
+  -- deals (the CRM), as Pipedrive's web forms save a deal and Jobber's job booking
+  -- converts its request. Only with leads on.
+  deals boolean not null default false,
+  -- Whose each submission's lead (and its deal) is, as Pipedrive's web forms set an
+  -- owner; and the stage its deal starts in (a key of the app's stages; the first
+  -- open one when empty or gone).
+  owner citext,
+  deal_stage text,
+  -- A form that follows up on its own (the phone skill's flows 2 and 3): by
+  -- text where it can, by email where it can't. Off by default.
+  follow_up boolean not null default false
+);
+
+create table if not exists submissions (
+  id          bigserial primary key,
+  form_key    text not null,
+  name        text,
+  email       citext,
+  phone       text,
+  data        jsonb not null default '{}'::jsonb,
+  source      text not null,
+  page        text,
+  status      text not null default 'new' check (status in ('new', 'read', 'done', 'spam')),
+  updated_by  citext,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  completed_at timestamptz default now(),
+  notified text,
+  -- What a person agreed to: the words of the texting box they ticked, and when.
+  text_consent text,
+  text_consent_at timestamptz
+);
+
+-- One post of a one-page form, however many times it arrives: a double click
+-- or a retry is the same page's stamp with the same answers (store.ts insertOnce).
+alter table submissions add column if not exists submit_key text;
+create unique index if not exists submissions_submit_key on submissions (form_key, submit_key) where submit_key is not null;
+
+create index if not exists submissions_form_recent on submissions (form_key, created_at desc, id desc);
+create index if not exists submissions_recent on submissions (created_at desc, id desc);
+create index if not exists submissions_email on submissions (email);
+create index if not exists submissions_status on submissions (status, created_at desc, id desc);
+create index if not exists submissions_name_trgm on submissions using gin (name gin_trgm_ops);
+create index if not exists submissions_email_trgm on submissions using gin ((email::text) gin_trgm_ops);
+
+comment on column forms.leads is 'Each submission is a lead (customers skill leads). Off for a newsletter sign-up or a job application: the person is still saved.';
+comment on table forms is 'One row per form. fields is the ordered definition the renderer and validator read (forms skill).';
+comment on table submissions is 'Every form submission from every app in the project. A person is their email. No IP addresses are stored.';
+comment on column submissions.completed_at is 'When the whole form was done: its questions, then any booking step and any payment (once Stripe reports it paid). Null while a step is still to do.';
+comment on column submissions.data is 'Every answer that is not name, email or phone, keyed by field name. _consent holds the wording of each consent box ticked; _utm, _click, _referrer, _landing and _first say where the visitor came from (origin.ts).';
+comment on column submissions.notified is 'The email telling the team about it, in one line: who it went to, or why it was not sent (forms/store.ts recordNotified). Null when none was tried.';
+
+-- A form with steps, while someone is still answering it. A draft is written
+-- at the end of the first step and updated at each one after; when the last
+-- page of questions is answered it becomes a submission (submission_id),
+-- and any booking or payment step after that attaches to the submission,
+-- which is complete (completed_at) once the last of them is done.
+-- So every app that reads submissions sees only finished ones, and the
+-- forms admin lists the rest as not finished. The visitor holds the key;
+-- only its hash is stored (data/token.ts).
+create table if not exists submission_drafts (
+  id bigserial primary key,
+  form_key text not null,
+  key_hash text not null,
+  step integer not null default 1,                -- steps finished
+  name text,
+  email citext,
+  phone text,
+  data jsonb not null default '{}'::jsonb,
+  spam boolean not null default false,            -- the first step was sent too fast (data/spam.tsx)
+  source text not null,
+  page text,
+  submission_id bigint,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  -- An email's link back to a draft carries a second key (the phone skill's
+  -- draftLink), so the page the visitor still has open keeps working.
+  text_key_hash text,
+  -- What a person agreed to: the words of the texting box they ticked, and when.
+  text_consent text,
+  text_consent_at timestamptz
+);
+create unique index if not exists submission_drafts_key on submission_drafts (key_hash);
+create index if not exists submission_drafts_recent on submission_drafts (form_key, updated_at desc, id desc);
+create index if not exists submission_drafts_submission on submission_drafts (submission_id);
+create index if not exists submission_drafts_text_key on submission_drafts (text_key_hash) where text_key_hash is not null;
+alter table submission_drafts add column if not exists submit_key text;
+create unique index if not exists submission_drafts_submit_key on submission_drafts (form_key, submit_key) where submit_key is not null;
+
+-- Where a lead goes besides this database: a webhook, a connection (i360 and the
+-- like) or an email. `forms` empty means every form that makes leads. `send_when`
+-- is the moment it goes: `answered` once the questions are done, `complete` once
+-- the last step is. `needs` names what must be present; `template` shapes the body
+-- with {{placeholders}}, or is null for every field flat. A webhook's `target` is
+-- the name of the app secret holding its address, never the address.
+create table if not exists lead_destinations (
+  id          bigserial primary key,
+  key         text not null unique check (key ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
+  title       text not null,
+  kind        text not null check (kind in ('webhook', 'connection', 'email')),
+  target      text not null,
+  path        text,
+  template    jsonb,
+  forms       text[] not null default '{}',
+  send_when   text not null default 'answered' check (send_when in ('answered', 'complete')),
+  needs       text[] not null default '{}',
+  active      boolean not null default true,
+  source      text,
+  updated_by  citext,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+-- One row per submission per destination, so a lead goes once however many apps
+-- or requests see it; claimed before sending, as text_sends is. It keeps what was
+-- sent and what came back. Never a credential.
+create table if not exists lead_deliveries (
+  id              bigserial primary key,
+  submission_id   bigint not null references submissions (id) on delete cascade,
+  destination_id  bigint not null references lead_destinations (id) on delete cascade,
+  status          text not null check (status in ('waiting', 'due', 'sending', 'sent', 'failed')),
+  attempts        integer not null default 0,
+  body            text,
+  response_status integer,
+  response_body   text,
+  error           text,
+  alerted_at      timestamptz,
+  sent_at         timestamptz,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create unique index if not exists lead_deliveries_once on lead_deliveries (submission_id, destination_id);
+create index if not exists lead_deliveries_failed on lead_deliveries (updated_at desc) where status = 'failed';
+
+comment on table lead_destinations is 'Where a lead goes besides this database (forms/destinations.ts). Changed with node scripts/forms.mjs.';
+comment on table lead_deliveries is 'Each send of a lead to a destination: what went, what came back. Failed sends wait for a person to resend.';

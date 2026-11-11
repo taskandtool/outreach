@@ -1,0 +1,148 @@
+# The site's design system, as one record. `npm run apply-design` compiles it
+# into styles/theme.css (the tokens Tailwind turns into classes), DESIGN.md
+# (the readable contract) and src/fonts.ts; never edit those two by hand, `npm run check` says
+# when they no longer match this file. The shape is the design library's
+# (.claude/skills/design/references/authoring.md); this one is the working
+# default. The first homepage makes it the business's own: its tokens and
+# identity, and its layout wherever their material calls for another
+# (the design skill).
+id: storefront
+title: Storefront
+summary: >
+  A clean, confident sales page for each company, built only from what it states.
+  Warm white, deep evergreen and real star gold, one serif voice for promises, and one
+  obvious next step on every screen.
+
+identity:
+  subject: "A ready-made one-page site for one local business: its offers, guarantees, reviews, people and work"
+  audience: "Someone about to hire, who wants the best deal from a company they can trust, and fast"
+  one_job: "Show why to pick this company, then make asking for a quote the obvious next step"
+  direction: "Storefront: a focused, benefit-led sales page, where every claim is true and traceable"
+  source: "The clearest local-service landing pages, without their clutter"
+  signature: "A plain promise with checkmarks and a real photo, then real reviews moving past"
+  rejection: "Invented claims, a score of our own, sponsored rows, stock photos and walls of terms"
+  photography: "Each company's own pictures, large and early; never stock"
+
+tokens:
+  # Every colour by role. Markup uses only these (bg-*, text-*, border-*);
+  # Tailwind's own palette is switched off. A value is a hex, a reference to
+  # another role ({colors.ink}), or a CSS colour that uses references.
+  colors:
+    canvas: "#ffffff"
+    surface: "#ffffff"
+    panel: "#f3f5f0"
+    night: "#0d2a24"
+    star: "#f4a100"
+    accent-soft: "#e2f2ec"
+    ink: "#122420"
+    ink-2: "#3f504b"
+    ink-3: "#5a6a65"
+    night-ink: "#f2f5f1"
+    night-ink-2: "#b4c2bc"
+    accent: "#0a6650"
+    accent-ink: "#ffffff"
+    accent-hover: "color-mix(in oklab, {colors.accent} 85%, black)"
+    mark: "#9a4a08"
+    mark-soft: "#fdf0df"
+    line: "rgb(19 33 30 / 0.14)"
+    line-strong: "rgb(19 33 30 / 0.34)"
+    line-on-night: "rgb(242 245 241 / 0.16)"
+  typography:
+    display:
+      fontFamily: "Newsreader"
+      fontSize: clamp(2.375rem, 5.2vw, 4rem)
+      fontWeight: 500
+      lineHeight: 1.04
+      letterSpacing: -0.022em
+    section:
+      fontFamily: "Newsreader"
+      fontSize: clamp(1.75rem, 3.2vw, 2.625rem)
+      fontWeight: 500
+      lineHeight: 1.1
+      letterSpacing: -0.018em
+    title:
+      fontFamily: "Figtree"
+      fontSize: 1.125rem
+      fontWeight: 650
+      lineHeight: 1.3
+      letterSpacing: -0.008em
+    lede:
+      fontFamily: "Figtree"
+      fontSize: clamp(1.0625rem, 1.3vw, 1.25rem)
+      fontWeight: 400
+      lineHeight: 1.45
+    copy:
+      fontFamily: "Figtree"
+      fontSize: 1rem
+      fontWeight: 400
+      lineHeight: 1.55
+    label:
+      fontFamily: "Figtree"
+      fontSize: 0.8125rem
+      fontWeight: 500
+      lineHeight: 1.4
+  rounded:
+    control: 0.625rem
+    card: 1rem
+  shadows:
+    lift: "0 2px 4px rgb(13 42 36 / 0.05), 0 24px 48px -20px rgb(13 42 36 / 0.28)"
+    card: "0 1px 2px rgb(13 42 36 / 0.05), 0 6px 20px -12px rgb(13 42 36 / 0.16)"
+  spacing:
+    section: clamp(3rem, 6.5vw, 6rem)
+    lead: clamp(1rem, 2vw, 1.5rem)
+  containers:
+    content: 46rem
+    wide: 76rem
+  easing:
+    soft: cubic-bezier(0.2, 0, 0, 1)
+
+sections:
+  overview: >
+    A company page is one argument from top to bottom: a plain promise and a real photo,
+    proof from customers, what is on offer, what is guaranteed, who does the work, and
+    one obvious next step. Every claim comes from a record, and the page's sources sit together at its foot.
+  colors: >
+    {colors.canvas} is the page, {colors.panel} a tinted band, {colors.night} the one dark
+    band for reviews and the request, and the footer. {colors.ink} is text, {colors.ink-2}
+    secondary, {colors.ink-3} captions. {colors.accent} is every action and check,
+    {colors.accent-soft} behind a check. {colors.star} is only for a platform's real stars.
+    {colors.mark} on {colors.mark-soft} is only for what is on offer now.
+  typography: >
+    {typography.display} is the page's promise, {typography.section} every h2,
+    {typography.title} a card's name, {typography.lede} the line under a heading,
+    {typography.copy} text, {typography.label} a caption or a source.
+  components: >
+    Check is the signature, beside anything a company states. Stars show only a platform's
+    real number. OfferCard, GuaranteeCard, CompanyCard and ReviewCard are the page's parts,
+    each one glance long, with "Terms apply" linking out where terms exist. They are in src/components.tsx.
+  layout: >
+    Every band shares one frame, max-w-wide with px-5 sm:px-8. Section headings sit centred
+    above their content, and long text narrows to max-w-content. Sections alternate canvas and
+    panel so each reads as one idea, and the footer stays at the foot of a short page.
+  elevation_and_depth: >
+    Cards and the hero photo lift softly off the page. A hairline edges a form control.
+  motion: >
+    Reviews drift slowly, pause on hover and stand still for anyone who asks for less motion.
+    Hover and focus take 150ms with {easing.soft}. Nothing else moves.
+  responsive_behavior: >
+    A phone gets one column and a bar at the bottom with the two actions.
+  dos_and_donts:
+    do:
+      - rule: "Lead with what the customer gets, in as few words as possible."
+        why: "These pages are read in a hurry, by someone deciding who to call."
+      - rule: "Name what a thing is in plain words: a label, not a slogan."
+        why: "'Compared on what they actually state' sounds generated; 'Find HVAC companies in Round Rock' says what the page does."
+      - rule: "Use the tokens; add one to this record when one is missing."
+        why: "A one-off value in markup is a second design system that nobody maintains."
+    dont:
+      - rule: "Don't show stars, a 'free' or a guarantee the record can't back."
+        why: "One invented claim costs the whole site its trust."
+      - rule: "Don't merge ratings or make a score."
+        why: "A number of ours would claim a judgment we never made."
+      - rule: "Don't show a blank as no, or as a row saying not stated."
+        why: "A section with nothing to say is left out, so every line on the page earns its place."
+  known_gaps: >
+    No company's own colours: every page is the site's.
+
+x_declares: []
+x_declares_reasons: {}
