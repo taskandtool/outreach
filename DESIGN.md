@@ -43,6 +43,8 @@ A company page is one argument from top to bottom: a plain promise and a real ph
 | `accent-hover` | color-mix(in oklab, `accent` 85%, black) |
 | `mark` | #9a4a08 |
 | `mark-soft` | #fdf0df |
+| `highlight` | #ffd84a |
+| `highlight-ink` | #2a2100 |
 | `line` | rgb(19 33 30 / 0.14) |
 | `line-strong` | rgb(19 33 30 / 0.34) |
 | `line-on-night` | rgb(242 245 241 / 0.16) |
@@ -114,7 +116,7 @@ Nothing declared.
 
 ## Agent Prompt Guide
 
-- Colours (as `bg-`, `text-`, `border-`): `canvas`, `surface`, `panel`, `night`, `star`, `accent-soft`, `ink`, `ink-2`, `ink-3`, `night-ink`, `night-ink-2`, `accent`, `accent-ink`, `accent-hover`, `mark`, `mark-soft`, `line`, `line-strong`, `line-on-night`.
+- Colours (as `bg-`, `text-`, `border-`): `canvas`, `surface`, `panel`, `night`, `star`, `accent-soft`, `ink`, `ink-2`, `ink-3`, `night-ink`, `night-ink-2`, `accent`, `accent-ink`, `accent-hover`, `mark`, `mark-soft`, `highlight`, `highlight-ink`, `line`, `line-strong`, `line-on-night`.
 - Families: `font-display`, `font-body`. Sizes: `text-display`, `text-section`, `text-title`, `text-lede`, `text-copy`, `text-label`.
 - Edges: `rounded-control`, `rounded-card`; `shadow-lift`, `shadow-card`.
 - Spacing (with `p`, `m`, `gap` and their sides): `section`, `lead`.

@@ -29,6 +29,8 @@
   --color-accent-hover: color-mix(in oklab, var(--color-accent) 85%, black);
   --color-mark: #9a4a08;
   --color-mark-soft: #fdf0df;
+  --color-highlight: #ffd84a;
+  --color-highlight-ink: #2a2100;
   --color-line: rgb(19 33 30 / 0.14);
   --color-line-strong: rgb(19 33 30 / 0.34);
   --color-line-on-night: rgb(242 245 241 / 0.16);

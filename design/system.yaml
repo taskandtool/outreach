@@ -44,6 +44,8 @@ tokens:
     accent-hover: "color-mix(in oklab, {colors.accent} 85%, black)"
     mark: "#9a4a08"
     mark-soft: "#fdf0df"
+    highlight: "#ffd84a"
+    highlight-ink: "#2a2100"
     line: "rgb(19 33 30 / 0.14)"
     line-strong: "rgb(19 33 30 / 0.34)"
     line-on-night: "rgb(242 245 241 / 0.16)"

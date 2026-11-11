@@ -101,9 +101,9 @@ function Hero({ c, action }: { c: Company; action: ReturnType<typeof actionOf> }
             </ul>
           ) : null}
           {offer ? (
-            <p data-ends={offer.ends ?? undefined} class="mt-6 inline-flex flex-wrap items-center gap-x-2 rounded-control bg-mark-soft px-3.5 py-2 text-mark">
-              <strong class="font-semibold">{offer.title}</strong>
-              {offer.ends ? <span>Ends {day(offer.ends)}</span> : null}
+            <p data-ends={offer.ends ?? undefined} class="mt-7 inline-flex -rotate-1 flex-wrap items-baseline gap-x-3 rounded-control bg-highlight px-4 py-2.5 text-highlight-ink">
+              <strong class="font-display text-title">{offer.title}</strong>
+              {offer.ends ? <span class="font-semibold">Ends {day(offer.ends)}</span> : null}
             </p>
           ) : null}
           <div class="mt-6 flex flex-wrap items-center gap-3">
