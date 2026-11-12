@@ -1,5 +1,7 @@
 # Outreach
 
+[![Deploy on Task & Tool](https://taskandtool.com/images/deploy-button.svg)](https://taskandtool.com/accounts/register?starter_app=outreach)
+
 Win web design clients by showing them their new site before you ask. Outreach builds a polished
 one-page site for every business in a niche and area, from what each one already publishes, and
 emails the owner the link.
