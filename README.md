@@ -6,6 +6,8 @@ drafts an email to each owner with the link.
 
 [![Deploy on Task & Tool](https://taskandtool.com/images/deploy-button.svg)](https://taskandtool.com/accounts/register?starter_app=outreach)
 
+![Larkspur Heating & Air's page, with its $69 tune-up highlighted, and the same page on a phone beside it](https://taskandtool.com/images/starter-apps/outreach.webp)
+
 It's made to run on Task & Tool. There, each app has a computer for your AI
 agent. Your project gets a Postgres database for quote requests and page
 visits. The agent uses the skills and scripts in this repo to find the
@@ -20,6 +22,8 @@ Cloudflare.
 Click the button above, or pick Outreach when you create an app on [Task &
 Tool](https://taskandtool.com/starter-apps/outreach). Then ask for pages in
 the chat: "Make outreach pages for HVAC companies in Denver."
+
+See it in use on the [Outreach page](https://taskandtool.com/starter-apps/outreach).
 
 ## Features
 
@@ -68,6 +72,8 @@ address>/<company>`. Once you point your domain's wildcard DNS at the app's
 Worker, it is also at `<company>.<your domain>`. You set that up outside
 Task & Tool for now. The emails use that address once `domain` is filled in
 `SITE.md`. Visitors to the bare domain go to your agency's site.
+
+<img src="https://taskandtool.com/images/marketing/quillmark-larkspur-phone.webp" width="300" alt="Larkspur Heating & Air's page at phone width: same-day AC repair, a $69 tune-up and a 10-year labor guarantee">
 
 ### Checks before every deploy
 
