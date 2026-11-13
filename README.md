@@ -117,15 +117,8 @@ or on its blocklist. Instantly sends from mailboxes you set up and warmed on
 a separate sending domain. Nothing goes out until you start the campaign in
 Instantly.
 
-In the US, the CAN-SPAM Act requires a postal address and a clear way to opt
-out in every commercial email. Other countries can be stricter. Check the
-law where your recipients are before you send.
-
-You set up the campaign in Instantly once. Its sequence is the first email
-and at most two follow-ups. Put the sender's name, your postal address and
-Instantly's unsubscribe link in it. The agent adds no leads until the
-sender's name and postal address are filled in `SITE.md`. An opt-out is kept
-forever and checked before a draft is written or sent.
+You set up the campaign and its follow-ups in Instantly. People who opt out
+aren't emailed again.
 
 ### You see which owners opened their page
 
@@ -234,7 +227,7 @@ companies. There are no company pages until `data/` is built.
   `/<company>`. The quote form and visits need a database in `DATABASE_URL`.
 - `npm run check` builds the pages and runs every check. `npm run check --
   --built` checks the pages already in `dist/`.
-- `npm test` runs 131 tests on the scripts and the page.
+- `npm test` runs the tests on the scripts and the page.
 - `npm run deploy` builds, checks and publishes the pages to production. It
   works only on Task & Tool.
 - `node scripts/pipeline.mjs status` shows what is waiting at each stage.
