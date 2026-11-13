@@ -27,14 +27,14 @@ const lines = (rows: [string, unknown][]) => rows.filter(([, v]) => v).map(([k, 
 async function pass(c: Context, db: Db, id: number, to: Listing, sub: { name: string | null; email: string | null; phone: string | null }, data: Record<string, unknown>): Promise<void> {
   const env = envOf(c);
   const request = lines([["Name", sub.name], ["Phone", sub.phone], ["Email", sub.email], ["ZIP code", data.zip], ["What they need", data.need]]);
-  let said = "Held: forward_leads is off, so a person passes this on";
-  if (site.forwardLeads && !to.email) said = "Held: this company has no address to send it to";
-  else if (site.forwardLeads && !emailsCustomers(env)) said = "Held: no email sender can reach a business yet";
+  let said = "Held: forward_leads is off. Pass it on yourself";
+  if (site.forwardLeads && !to.email) said = "Held: we have no email address for this company";
+  else if (site.forwardLeads && !emailsCustomers(env)) said = "Held: no email sender is set up for businesses yet";
   else if (site.forwardLeads) {
     const sent = await sendEmail(env, {
       to: [to.email as string],
       replyTo: sub.email,
-      subject: `A quote request for ${to.name}, from ${site.name}`,
+      subject: `Quote request for ${to.name} via ${site.name}`,
       text: `Someone looking at the page ${site.name} made for you asked you for a quote. Please reply to them directly.\n\n${request}\n\nIf this is the wrong address, or you'd rather not get these, reply and tell us.`,
     });
     said = sent.status === "sent" ? `Sent to ${to.email}` : `Not sent to ${to.email}: ${sent.status === "none" ? sent.why : sent.error.slice(0, 120)}`;

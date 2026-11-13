@@ -361,7 +361,7 @@ function ReviewThemes({ c }: { c: Company }) {
     <section aria-labelledby="themes" class="py-section">
       <Band>
         <SectionHead id="themes" heading="What customers mention" />
-        <div class={`mx-auto mt-8 grid max-w-4xl gap-8 ${c.reviews.praise.length && c.reviews.complaints.length ? "md:grid-cols-2" : "max-w-xl"}`}><Col label="What they like" list={c.reviews.praise} /><Col label="What some raise" list={c.reviews.complaints} /></div>
+        <div class={`mx-auto mt-8 grid max-w-4xl gap-8 ${c.reviews.praise.length && c.reviews.complaints.length ? "md:grid-cols-2" : "max-w-xl"}`}><Col label="What customers liked" list={c.reviews.praise} /><Col label="What some customers didn't like" list={c.reviews.complaints} /></div>
         {all?.url ? <p class="mt-8 text-center"><a href={all.url} rel="nofollow noopener" class="font-semibold">Read all {all.count != null ? `${all.count.toLocaleString("en-US")} ` : ""}reviews on {all.platform}</a></p> : null}
       </Band>
     </section>

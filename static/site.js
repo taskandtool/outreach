@@ -14,7 +14,7 @@
     n.remove();
     if (section && !section.querySelector("[data-ends]")) {
       var none = document.createElement("p");
-      none.textContent = "No offers are running at the moment.";
+      none.textContent = "No current offers.";
       section.append(none);
     }
   });
