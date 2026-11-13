@@ -6,7 +6,7 @@ drafts an email to each owner with the link.
 
 [![Deploy on Task & Tool](https://taskandtool.com/images/deploy-button.svg)](https://taskandtool.com/accounts/register?starter_app=outreach)
 
-![Larkspur Heating & Air's page, with its $69 tune-up highlighted, and the same page on a phone beside it](https://taskandtool.com/images/starter-apps/outreach.webp)
+![Larkspur Heating & Air's page on a desktop and a phone](https://taskandtool.com/images/starter-apps/outreach.webp)
 
 It's made to run on Task & Tool. There, each app has a computer for your AI
 agent. Your project gets a Postgres database for quote requests and page
@@ -23,7 +23,8 @@ Click the button above, or pick Outreach when you create an app on [Task &
 Tool](https://taskandtool.com/starter-apps/outreach). Then ask for pages in
 the chat: "Make outreach pages for HVAC companies in Denver."
 
-See it in use on the [Outreach page](https://taskandtool.com/starter-apps/outreach).
+See it in use on the [Outreach
+page](https://taskandtool.com/starter-apps/outreach).
 
 ## Features
 
@@ -33,7 +34,7 @@ The agent finds the businesses in a metro, a state or the whole country from
 Overture Maps, a free map dataset. You can also give it your own list as a
 CSV. Before it spends anything, it tells you how many companies it found and
 how many have a website. It also gives you a few examples to check and the
-expected credits, AI cost and time. Then it waits for your yes.
+expected credits, AI cost and time. Then it waits for you to approve.
 
 ### You check a sample of about 20 first
 
@@ -54,7 +55,7 @@ The agent writes one record per company: each fact with the place it came
 from. It checks that the quotes in the record appear in what was gathered.
 It looks at each picture once and saves a description of it.
 
-### The agent builds a page from a business's facts
+### A page for each business
 
 A page can have the Google rating, current offers, guarantees, services, the
 company's work and people, what customers mention and the service area.
@@ -107,13 +108,12 @@ never emails them.
 ### The subject and opener come from the owner's page
 
 The subject is under 60 characters and names the business and one true thing
-about it: "Larkspur's 10-year labor guarantee". The opener is
-one or two sentences on what comes first on their page. The agent mentions a
-number, guarantee or offer only if their page shows it. The agent checks
-each draft for a missing part, an over-long subject or opener, and wording
-that reads as AI. If it finds nothing true and specific to say about a
-company, that company gets no email. The agent tells you which companies
-those are.
+about it: "Larkspur's 10-year labor guarantee". The opener is one or two
+sentences on what comes first on their page. The agent mentions a number,
+guarantee or offer only if their page shows it. The agent checks each draft
+for a missing part, an over-long subject or opener, and wording that reads
+as AI. If it finds nothing true and specific to say about a company, that
+company gets no email. The agent tells you which companies those are.
 
 ### You approve every email and start the campaign
 
@@ -183,14 +183,14 @@ check for each Gmail or Outlook address. Building the pages costs no AI.
 Task & Tool is the easiest place to run it: your connections, the database
 and the schedule are already there for the agent. Each app gets:
 
-- Its own computer for the agent, and a dev address where your team checks
-  pages before they go live
+- Its own computer for the agent
+- A dev address your team opens to check pages before they go live
 - A Postgres database for quote requests and page visits. You can roll it
   back to an earlier point in time.
 - Publishing on your own domain with a free SSL certificate. Only your team
   sees production until you make it public.
 - Connections to Google Places, ScrapeCreators, Hunter, MillionVerifier and
-  Instantly. Their keys stay out of this repo.
+  Instantly. Task & Tool holds their keys.
 - Scheduled jobs for the reading, the refreshes and the audit above
 
 ## Make it your own
