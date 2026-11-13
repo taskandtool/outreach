@@ -107,7 +107,7 @@ never emails them.
 ### The subject and opener come from the owner's page
 
 The subject is under 60 characters and names the business and one true thing
-about it: "Larkspur's 10-year labor guarantee on one page". The opener is
+about it: "Larkspur's 10-year labor guarantee". The opener is
 one or two sentences on what comes first on their page. The agent mentions a
 number, guarantee or offer only if their page shows it. The agent checks
 each draft for a missing part, an over-long subject or opener, and wording

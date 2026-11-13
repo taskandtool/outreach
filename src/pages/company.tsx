@@ -308,7 +308,7 @@ function RequestBand({ c }: { c: Company }) {
       <div class="mx-auto grid max-w-wide gap-x-16 gap-y-8 px-5 sm:px-8 lg:grid-cols-[1fr_1.1fr] lg:grid-rows-[auto_1fr]">
         <div>
           <h2 id="request-heading" class="font-display text-section">{free ? `Get your free estimate from ${c.name}` : `Ask ${c.name} for a quote`}</h2>
-          <p class="mt-3 text-lede text-night-ink-2">It takes a minute, and they reply to you directly.</p>
+          <p class="mt-3 text-lede text-night-ink-2">It takes a minute. They reply to you directly.</p>
         </div>
         <form method="post" action={`/request/${c.slug}`} data-lead-form class="rounded-card bg-surface p-6 text-ink shadow-lift sm:p-8 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <SpamFields stamp="" />
@@ -320,7 +320,7 @@ function RequestBand({ c }: { c: Company }) {
             <label class="text-label font-semibold sm:col-span-2">What do you need?<textarea name="need" required rows={3} class={`${input} py-2`} /></label>
           </div>
           <button class={`${CTA} mt-5 w-full`}>{free ? "Get my free estimate" : "Send my request"}</button>
-          <p class="mt-3 text-label text-ink-3">Your request goes to {c.name} only, passed on by {site.name}, who made this page.</p>
+          <p class="mt-3 text-label text-ink-3">{site.name} made this page and passes your request to {c.name} only.</p>
           <TermsNotice c={c} class="mt-1 text-label text-ink-3" />
           <noscript><p class="mt-3 text-label text-mark">This form needs JavaScript. Please call them instead.</p></noscript>
         </form>
@@ -404,12 +404,12 @@ function Sources({ c }: { c: Company }) {
     <Band>
       <TermsNotice c={c} class="mx-auto max-w-3xl border-t border-line pt-5 text-label text-ink-3" />
       <p class="mx-auto mt-2 max-w-3xl text-label text-ink-3">
-        Is this your business? We built this page from your website and reviews. Use it as your site, or let it bring you leads.{" "}
+        Is this your business? We built this page from your website and reviews. Use it as your site, or let us send you leads from it.{" "}
         {site.agencyUrl ? <a href={site.agencyUrl} class="font-semibold text-accent underline">See how it works</a> : null}
       </p>
       <details class="mx-auto mt-2 max-w-3xl text-label text-ink-3">
         <summary class="cursor-pointer select-none hover:text-ink">Where this comes from</summary>
-        <p class="mt-2 font-normal">From {c.name}'s website and public reviews{c.crawled ? `, read ${day(c.crawled)}` : ""}. We haven't verified it, and their own terms decide what a guarantee or offer covers.</p>
+        <p class="mt-2 font-normal">From {c.name}'s website and public reviews{c.crawled ? `, read ${day(c.crawled)}` : ""}. We haven't verified it. What a guarantee or offer covers is in their own terms.</p>
         {urls.length ? <ul class="mt-2 space-y-1 font-normal">{urls.slice(0, 20).map((u) => <li class="break-all"><a href={u} rel="nofollow noopener" class="underline">{u.replace(/^https?:\/\/(www\.)?/, "")}</a></li>)}</ul> : null}
       </details>
     </Band>
@@ -441,7 +441,7 @@ export function CompanyBody({ c }: { c: Company }) {
   const tel = c.phones[0]?.value;
   return (
     <div data-company={c.slug} class="pb-20 lg:pb-0">
-      {c.siteDown ? <p class="bg-mark-soft px-5 py-2 text-center text-mark">Its website has not answered lately. These details were last confirmed {day(c.crawled)}.</p> : null}
+      {c.siteDown ? <p class="bg-mark-soft px-5 py-2 text-center text-mark">We haven't been able to reach its website lately. These details were last confirmed {day(c.crawled)}.</p> : null}
       {c.leftSource ? <p class="bg-mark-soft px-5 py-2 text-center text-mark">This business was no longer in our source on {day(c.leftSource)}. It may have closed or moved.</p> : null}
       <Hero c={c} action={action} />
       {action && (c.offers.length || c.guarantees.length || c.reviewCards.length) ? (

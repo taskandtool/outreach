@@ -58,7 +58,7 @@ export function leadRoutes(getDb: (c: Context) => Db, hasDb: (c: Context) => boo
     const to = SLUG.test(slug) ? await listing(getDb(c), slug) : null;
     return c.html(shell("/request/thanks", "Your request is saved", (
       <>
-        <p class="text-lede text-ink-2">{to ? `We pass it on to ${to.name}, and they reply to you directly.` : "They reply to you directly."} In a hurry? Calling is fastest.</p>
+        <p class="text-lede text-ink-2">{to ? `We pass it on to ${to.name}. They reply to you directly.` : "They reply to you directly."} In a hurry? Calling is fastest.</p>
         {to ? <p class="mt-6"><a href={`/${to.slug}`} class="font-semibold">Back to {to.name}</a></p> : null}
       </>
     )) as string);

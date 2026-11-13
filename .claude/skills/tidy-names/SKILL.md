@@ -39,7 +39,7 @@ brands:
 ```
 
 Separate things that only share a word: a parts warranty is not a labor warranty. Rebuild, and read
-the lists again. A kind that keeps landing in `other` goes to the owner for `fields.yaml`, since
+the lists again. A kind that keeps ending up in `other` goes to the owner for `fields.yaml`, since
 changing it means re-reading a sample.
 
 Done when the owner has seen the lists of services, guarantee kinds, offer kinds, brands and phrases, and they make sense.

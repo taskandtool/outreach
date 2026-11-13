@@ -19,7 +19,7 @@ Agree with the owner, and record in `SITE.md`:
 
 - The niche and the area: a metro, a state, or national and online.
 - The agency: its name and its site (`agency_url`), where a business can see pricing and get in touch.
-- The domain the pages live on (`domain`): each company at `<slug>.<domain>`.
+- The domain for the pages (`domain`): each company at `<slug>.<domain>`.
 - Who sends the emails (`sender`): a real person's name, an address on a separate, warmed sending
   domain, and the agency's postal address, which every email carries.
 
@@ -96,8 +96,8 @@ in its record with "corrected by the business" and the date; a takedown removes 
    Only `valid` (and MillionVerifier's `ok`) is sendable.
 
 A Hunter 451 means that person asked not to be stored or contacted: the app keeps no address for them,
-ever. A 429 stops the run with progress kept. Each answer is saved in `raw/<slug>/contact/`, so nothing
-is looked up twice.
+ever. A 429 stops the run with progress kept. Each answer is saved in `raw/<slug>/contact/` and never
+looked up again.
 
 ### 2. Drafts and the approval list
 
@@ -121,7 +121,7 @@ leads with their opener and link. Nothing goes out until the owner starts the ca
   `outreach/optouts.csv` and checked before every draft and send. If the lead is already in the
   campaign, remove it in Instantly too.
 - `outreach.mjs visits` shows who opened their page, and a warm lead where a visit came from its
-  email's link. A mail scanner fetching the link runs no script, so it doesn't count.
+  email's link. A mail scanner that fetches the link runs no script and isn't counted.
 - A visitor's quote request is saved (`forms.mjs submissions --form quote`) and comes to us; passing
   it on to the business is a separate yes (`forward_leads`).
 

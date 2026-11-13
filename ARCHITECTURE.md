@@ -10,7 +10,7 @@ one already publishes, then emails the owner the link. It started as a copy of t
 app and keeps its finding, crawling, gathering and reading; it replaces the directory with one page
 per company and adds the outreach.
 
-The offer to each owner is one of two: use the page as your site, or let it bring you leads. The
+The offer to each owner is one of two: use the page as your site, or let us send you leads from it. The
 agency's own site (`agency_url`) has the pricing and the way to get in touch.
 
 ## Decisions
@@ -22,14 +22,14 @@ agency's own site (`agency_url`) has the pricing and the way to get in touch.
    website", "running as an ad", "customers on Google say". Those are never blended.
 3. **Confirm it is the same company before using a source.** A profile counts only if the company's
    site links to it, or its phone or domain matches. Anything else is held for a person.
-4. **A page sells, truthfully.** Stars only from a platform's number, "free" only where the company
+4. **A page sells with true claims only.** Stars only from a platform's number, "free" only where the company
    says it, a section with nothing to say left out. Two values that disagree both show. Code counts.
 5. **A preview is honest about what it is.** Every page says who made it, from what, and that it is
-   not the company's official site. It is `noindex`, with no canonical and no sitemap, so it never
-   competes with the company's own site in search; `robots.txt` allows crawling, so search engines
+   not the company's official site. It is `noindex`, with no canonical and no sitemap, to keep it out
+   of search beside the company's own site; `robots.txt` allows crawling, so search engines
    see the noindex (a page blocked from crawling can still be indexed from links).
-6. **Offers expire.** A script retires one past its date or gone from its source, and the browser
-   takes one down on a page built before then.
+6. **Offers expire.** A script retires one past its date or gone from its source, and
+   `static/site.js` removes one from a page built before then.
 7. **Nothing is emailed without the owner's yes.** Drafts wait for approval, `send --confirm` only
    adds approved leads to the campaign, and only the owner starts the campaign. An opt-out is kept
    forever and checked before every draft and send.
@@ -41,7 +41,7 @@ agency's own site (`agency_url`) has the pricing and the way to get in touch.
 10. **The owner's rules win.** `SITE.md` is theirs: the agency, the domain, the sender, the campaign,
     the niche. Every AI run reads it and follows it over a skill's defaults.
 11. **Every example is made up.** Companies, people, domains, phones and brands in code, tests, docs
-    and skills are invented (`larkspur.example`, 555 numbers). Real data lives only in the gitignored
+    and skills are invented (`larkspur.example`, 555 numbers). Real data is only in the gitignored
     working folders and `samples/`.
 
 ## What a company profile holds
@@ -96,7 +96,7 @@ downloaded when found.
   the page and the heading beside it.
 - Vendor pictures are added beside them.
 - **A picture is looked at once.** `scripts/images.mjs` hashes each, drops tiny ones and near-copies, and draws the rest small on numbered sheets. The AI
-  describes each, and the words stay in `raw/<company>/images.json`, keyed by the hash, so a re-crawl never pays to look again and code picks the record's `media` from them: the company's own
+  describes each once. The words are saved in `raw/<company>/images.json`, keyed by the hash, and a re-crawl never pays to look again. Code picks the record's `media` from them: the company's own
   pictures, people first, 12 at most.
 - `web_photos.py`, from the brand skill, resizes the keepers for the web.
 - A company page keeps about 12 pictures at most. Each shows with its source, and alt text from
@@ -110,7 +110,7 @@ they praise and complain about and which services they mention, with short quote
 counting. A rating is shown per platform, never merged into a score of ours.
 
 
-## The page and where it lives
+## The page and where it is served
 
 One page per company, pre-rendered from `data/` to `dist/<slug>.html` and served from Cloudflare,
 so the machine can sleep. It is the niche expertise app's company page, cut down to stand alone: the
@@ -127,14 +127,14 @@ the sources at the foot. No map, no lists and no links into a directory.
   business says yes, requests come to us; `forward_leads` passes them on.
 - **Visits.** `static/site.js` sends one beacon per page view with the email link's `?r=`; the Worker
   saves it to `page_visits` only for a company it knows. A mail scanner that fetches the link runs no
-  script, so it does not count, and `?preview` keeps the owner's own checks out.
+  script and is not counted. The owner's own checks use `?preview` and are not counted either.
 - **Ready to send.** A company gets a page whatever it holds, but only one with `gate.company_facts`
   kinds of fact is marked ready (`data/pages.json`), and only a ready page gets an email.
 
 ## Finding who to email
 
-`contacts.mjs find`, cheapest first, each answer saved under `raw/<slug>/contact/` so nothing is
-looked up twice:
+`contacts.mjs find`, cheapest first, each answer saved under `raw/<slug>/contact/` and never
+looked up again:
 
 1. The owner's name (a person in the record's background with an owner's role) and any address the
    site and profiles show. Free.
@@ -151,8 +151,8 @@ address; a 429 stops the run with progress kept.
 
 Instantly does the sending, from mailboxes the owner set up and warmed on a separate sending
 domain, never the agency's main one. Its campaign holds the sequence (the first email and at most two
-follow-ups), the sender's name, the postal address and the unsubscribe link, so the legal parts live
-in one place the owner controls.
+follow-ups), the sender's name, the postal address and the unsubscribe link. The owner controls these legal
+parts in Instantly.
 
 The app supplies what is particular to each lead. `outreach.mjs draft` writes `outreach/<slug>.md`
 with the address, the person and the page link with its own `?r=`; the `cold-email` skill writes the
@@ -163,7 +163,7 @@ activates the campaign. `outreach.mjs optout` keeps an opt-out forever in `outre
 
 ## On the machine
 
-The app lives on its sprite, like every Starter App: the repository is the app, cloned to `~/app`. Dev
+The app runs on its machine, like every Starter App: the repository is the app, cloned to `~/app`. Dev
 is the `web` service; production is `npm run deploy`, and only a person makes it public.
 
 ### Scripts

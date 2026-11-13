@@ -21,7 +21,7 @@ Photography:        Each company's own pictures, large and early; never stock
 
 ## Visual Theme & Atmosphere
 
-A company page is one argument from top to bottom: a plain promise and a real photo, proof from customers, what is on offer, what is guaranteed, who does the work, and one obvious next step. Every claim comes from a record, and the page's sources sit together at its foot.
+A company page is one argument from top to bottom: a plain promise and a real photo, proof from customers, what is on offer, what is guaranteed, who does the work, and one obvious next step. Every claim comes from a record, and its sources are listed together at the foot.
 
 ## Color Palette & Roles
 
@@ -102,7 +102,7 @@ Don't:
 - Don't merge ratings or make a score.
   A number of ours would claim a judgment we never made.
 - Don't show a blank as no, or as a row saying not stated.
-  A section with nothing to say is left out, so every line on the page earns its place.
+  A section with nothing to say is left out.
 
 ## Known Gaps
 

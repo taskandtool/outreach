@@ -9,18 +9,18 @@ Done when each draft's `subject` and `opener` are filled and `node scripts/outre
 passes. The owner then reads `outreach.mjs list` and approves; you never approve or send.
 
 The campaign's sequence in Instantly holds the rest of the email: who we are, the two offers, the
-link (`{{page_url}}`), the postal address and the unsubscribe. Each draft gives it only two lines,
-so they carry everything particular to this company.
+link (`{{page_url}}`), the postal address and the unsubscribe. Each draft adds only two lines.
+Everything particular to this company goes in them.
 
 Read the company's page (`npm run dev`, then `/<slug>?preview`, so the visit isn't counted) and its
 record, `records/<slug>.md`. Then:
 
 - **The subject names the business and one true thing about it,** under 60 characters, in their
-  words where you can: `Larkspur's 10-year labor guarantee, on one page`. It never claims to
+  words where you can: `Larkspur's 10-year labor guarantee`. It never claims to
   be from them, never "Re:", and never promises what the page doesn't show.
-- **The opener is one or two sentences about them,** what leads their page and why that is the
-  thing a customer would want first: `Your 10-year labor guarantee leads the page we built from
-  your website, ahead of the reviews.` Use the person's first name only if the draft has one.
+- **The opener is one or two sentences about them,** what their page opens with and why a
+  customer would want that first: `We put your 10-year labor guarantee first on the page we built from
+  your website.` Use the person's first name only if the draft has one.
 - **Every fact is theirs.** A number, a guarantee or an offer appears only if their page shows it.
   No flattery you can't point to, no "I noticed", no claim about their business you can't see.
 - Plain words the owner would say out loud; the tropes check in `outreach.mjs check` catches the rest.

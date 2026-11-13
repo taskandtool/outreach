@@ -28,7 +28,7 @@ background and people, what it guarantees, what it offers now, what it works
 with, and any proof, as `fields.yaml` lists.
 
 - **Every fact needs its evidence:** a short exact quote, copied from the file,
-  and the page or post's `url`. No quote, no fact. The quote carries the fact
+  and the page or post's `url`. No quote, no fact. The quote states the fact
   by itself: "10-year parts warranty", not "Warranty".
 - **Keep the conditions.** A guarantee's length, what it covers, what it requires
   and whose it is. An offer's end date, minimums and exclusions. Leave out any
@@ -56,7 +56,7 @@ with, and any proof, as `fields.yaml` lists.
   `free estimate` only if the company states it as an offer.
 - **The pitch** sells this company, in plain words a customer cares about, and every word must
   be true of a quote. `headline`: the strongest thing it states, benefit first, 12 words at
-  most, no em dash: "AC repair in Austin, with $50 off and a lifetime labor guarantee."
+  most, no em dash: "$50 off AC repair in Austin and a lifetime labor guarantee."
   `points`: 3 to 5 of what matters most (guarantees, offers, speed, years, licensing), 8 words
   at most each: "Lifetime labor guarantee", "Same-day repairs". No adjective the source doesn't
   use, no price or length it doesn't state, and no slogan or "actually", "real" or "genuine": say the thing. A company with too little to say gets no pitch.
@@ -86,7 +86,7 @@ that the fields don't hold, or nothing.
 ---
 name: Example Heating & Air
 pitch:
-  headline: Same-day AC repair, with a lifetime labor guarantee
+  headline: Same-day AC repair and a lifetime labor guarantee
   quote: "Lifetime labor guarantee with any maintenance plan"
   url: https://example.com/warranty
   points:

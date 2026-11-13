@@ -57,7 +57,7 @@ function Layout({ page, children }: { page: Page; children?: Child }) {
         <footer class="bg-night text-night-ink-2">
           <div class="mx-auto max-w-wide px-5 py-8 sm:px-8">
             <p class="max-w-content">
-              {page.company ? <>Made by <Agency /> from {page.company}'s public website and reviews. We haven't verified them, and {page.company}'s own terms decide what an offer or guarantee covers.</> : <Agency />}
+              {page.company ? <>Made by <Agency /> from {page.company}'s public website and reviews. We haven't verified them. What an offer or guarantee covers is in {page.company}'s own terms.</> : <Agency />}
             </p>
           </div>
         </footer>

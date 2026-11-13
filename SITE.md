@@ -3,7 +3,7 @@
 # defaults. The front matter is also what the site and the emails read.
 agency_name: "to fill: the agency's name, as a business owner will see it"
 agency_url: ""     # the agency's own site, where a business can contact us and see pricing
-domain: ""         # the domain the previews live on: each company at <slug>.<domain>
+domain: ""         # the domain for the previews: each company at <slug>.<domain>
 niche: "to fill: which businesses, in plain words"
 noun: "to fill: what they are called, plural: HVAC companies"
 area: "to fill: a metro, a state, or national and online"

@@ -102,7 +102,7 @@ sections:
   overview: >
     A company page is one argument from top to bottom: a plain promise and a real photo,
     proof from customers, what is on offer, what is guaranteed, who does the work, and
-    one obvious next step. Every claim comes from a record, and the page's sources sit together at its foot.
+    one obvious next step. Every claim comes from a record, and its sources are listed together at the foot.
   colors: >
     {colors.canvas} is the page, {colors.panel} a tinted band, {colors.night} the one dark
     band for reviews and the request, and the footer. {colors.ink} is text, {colors.ink-2}
@@ -142,7 +142,7 @@ sections:
       - rule: "Don't merge ratings or make a score."
         why: "A number of ours would claim a judgment we never made."
       - rule: "Don't show a blank as no, or as a row saying not stated."
-        why: "A section with nothing to say is left out, so every line on the page earns its place."
+        why: "A section with nothing to say is left out."
   known_gaps: >
     No company's own colours: every page is the site's.
 
