@@ -1,17 +1,19 @@
 ---
 name: design
-description: "Changes the pages' look: the design record, colours, type and spacing. Use for change the look, it looks generic, new colours or fonts. Not for how pages work (site) or a company's facts."
+description: "Changes the pages' look: the design record, colours, type and spacing. Use when asked to \"change the look\" or for new colours or fonts, or when \"it looks generic\". Not for how pages work (site) or a company's facts."
 ---
 
 # Design
 
-The look is one record, `design/system.yaml`, compiled by `npm run apply-design` into
-`styles/theme.css`, `DESIGN.md` and `src/fonts.ts`; it refuses a broken record. Read
-`DESIGN.md`, then change the record, never those files. `references/authoring.md` holds its shape.
+Done when `npm run check` passes and the shots from `tt-crawl shoot /<slug>` for two or
+three companies look right at both widths: text legible, nothing cut off. Judge the
+rendered page, not the code.
 
-Markup uses Tailwind utilities in the tokens only: no hex value, no Tailwind default colour,
-no classes of the site's own in `styles/`. A value the tokens lack is added to the record.
-Every company's page shares this one look; a company's own colours don't come into it yet.
+The look is one record, `design/system.yaml`. `npm run apply-design` compiles it into
+`styles/theme.css`, `DESIGN.md` and `src/fonts.ts`, and refuses a broken record. Read
+`DESIGN.md`, then change the record. Never edit the three compiled files. Before you
+change the record, read `references/authoring.md` for its fields and rules.
 
-Done when `npm run check` passes and `tt-crawl shoot /<slug>` for two or three companies looks
-right at both widths, with text legible and nothing cut off. Look at the rendered page, never the code.
+In markup, use only Tailwind utilities made from the tokens: no hex values, no Tailwind
+default colours, no custom classes in `styles/`. If the tokens lack a value, add it to the
+record. Every company's page has this one look. Don't use a company's own colours yet.
