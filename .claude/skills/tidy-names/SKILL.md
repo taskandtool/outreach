@@ -32,8 +32,9 @@ owner, who edits it.
 Done when the owner has seen the lists of services, guarantee kinds, offer kinds, brands and
 phrases, and they make sense.
 
-Run `node scripts/build-data.mjs` first, then read the names in `data/services.json`,
-`data/guarantees.json`, `data/brands.json` and `data/topics.json`. Merge variations: under
+Run `node scripts/build-data.mjs` first, then read the names across the companies in
+`data/companies.json`: each one's `services`, `brands` and `keywords`, and the `kind` of its
+`guarantees`, `offers` and `proof`. Merge variations: under
 `services`, `guarantee_kinds`, `offer_kinds`, `proof_kinds`, `brands` or `keywords`, map each
 written variation to its one name:
 
